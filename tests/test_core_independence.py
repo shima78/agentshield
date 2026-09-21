@@ -5,11 +5,14 @@
       |
     MCP adapter (agentshield.mcp)
     Jev provider (agentshield.jev)
+    OpenAI agent provider (agentshield.providers.openai)
 
-Two complementary checks, run for both `mcp` and `jev`/`typesafe_sdk`:
+Two complementary checks, run for `mcp`, `jev`/`typesafe_sdk`, and
+`openai`:
 
 1. Static: none of the Core's own source files contain an import
-   statement for the optional package.
+   statement for the optional package (or for the optional adapter
+   module that wraps it).
 2. Dynamic: a fresh Python process can import and fully use ``agentshield``
    (build a policy, evaluate a decision) even when the optional package is
    made entirely unimportable. This is the authoritative check — it proves
@@ -25,7 +28,10 @@ import textwrap
 CORE_DIR = pathlib.Path(__file__).resolve().parents[1] / "src" / "agentshield"
 
 # Files that belong to the Core, as opposed to the optional adapters
-# (src/agentshield/mcp/, src/agentshield/jev.py).
+# (src/agentshield/mcp/, src/agentshield/jev.py,
+# src/agentshield/providers/openai.py). agent.py defines the
+# provider-agnostic ProposedAction/AgentProvider interface -- it has no
+# dependency on any specific provider SDK, so it belongs here too.
 CORE_FILES = [
     CORE_DIR / "__init__.py",
     CORE_DIR / "decision.py",
@@ -34,6 +40,7 @@ CORE_FILES = [
     CORE_DIR / "risk.py",
     CORE_DIR / "audit.py",
     CORE_DIR / "semantic.py",
+    CORE_DIR / "agent.py",
 ]
 
 
@@ -70,6 +77,15 @@ def test_core_source_has_no_jev_import_statements():
     )
 
 
+def test_core_source_has_no_openai_import_statements():
+    offending = _blocked_import_prefixes_present("openai") + _blocked_import_prefixes_present(
+        "agentshield.providers"
+    )
+    assert offending == [], "Core files must not import openai/providers:\n" + "\n".join(
+        offending
+    )
+
+
 def _run_with_blocked_modules(blocked: tuple[str, ...]) -> subprocess.CompletedProcess:
     script = textwrap.dedent(
         f"""
@@ -94,6 +110,13 @@ def _run_with_blocked_modules(blocked: tuple[str, ...]) -> subprocess.CompletedP
         request = agentshield.DecisionRequest(actor="agent", action="deploy")
         decision = engine.evaluate(request)
         assert decision.outcome == agentshield.Outcome.ALLOW
+
+        # The provider-agnostic agent interface must also work with none
+        # of the optional provider SDKs importable.
+        proposal = agentshield.ProposedAction(action="deploy")
+        request2 = agentshield.build_decision_request(proposal)
+        assert engine.evaluate(request2).outcome == agentshield.Outcome.ALLOW
+
         print("OK")
         """
     )
@@ -132,10 +155,25 @@ def test_core_is_fully_usable_with_jev_import_blocked():
     assert result.stdout.strip() == "OK"
 
 
-def test_core_is_fully_usable_with_both_mcp_and_jev_blocked():
-    result = _run_with_blocked_modules(("mcp", "typesafe_sdk"))
+def test_core_is_fully_usable_with_openai_import_blocked():
+    """Run in a fresh subprocess with `openai` made unimportable;
+    agentshield must still import and evaluate a decision successfully.
+    This proves the Core has zero dependency on the OpenAI SDK, even
+    when the provider-agnostic ProposedAction/AgentProvider interface is
+    used directly.
+    """
+    result = _run_with_blocked_modules(("openai",))
     assert result.returncode == 0, (
-        f"agentshield failed to import/run with mcp and typesafe_sdk blocked.\n"
+        f"agentshield failed to import/run with openai blocked.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "OK"
+
+
+def test_core_is_fully_usable_with_all_optional_sdks_blocked():
+    result = _run_with_blocked_modules(("mcp", "typesafe_sdk", "openai"))
+    assert result.returncode == 0, (
+        f"agentshield failed to import/run with mcp, typesafe_sdk, and openai blocked.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
     assert result.stdout.strip() == "OK"
