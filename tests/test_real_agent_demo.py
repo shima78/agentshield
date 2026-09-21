@@ -111,7 +111,7 @@ def test_demo_module_never_imports_a_provider_sdk_directly():
     source = MODULE_PATH.read_text(encoding="utf-8")
     for line in source.splitlines():
         stripped = line.strip()
-        for sdk in ("openai", "anthropic"):
+        for sdk in ("openai", "anthropic", "google"):
             assert not stripped.startswith(f"import {sdk}"), line
             assert f"from {sdk}" not in stripped, line
 
@@ -225,16 +225,18 @@ def test_deterministic_allow_can_call_jev():
 def test_build_provider_without_any_api_key_selects_deterministic_fallback(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     provider, used_real_llm = demo._build_provider()
     assert used_real_llm is False
     assert isinstance(provider, demo.DeterministicDemoProvider)
 
 
-def test_build_provider_prefers_anthropic_when_both_keys_present(monkeypatch):
+def test_build_provider_prefers_anthropic_when_all_keys_present(monkeypatch):
     from agentshield.providers.anthropic import AnthropicProvider
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key-for-selection-test")
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key-for-selection-test")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-selection-test")
     provider, used_real_llm = demo._build_provider()
     assert used_real_llm is True
     assert isinstance(provider, AnthropicProvider)
@@ -245,9 +247,21 @@ def test_build_provider_selects_openai_when_only_openai_key_present(monkeypatch)
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key-for-selection-test")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     provider, used_real_llm = demo._build_provider()
     assert used_real_llm is True
     assert isinstance(provider, OpenAIProvider)
+
+
+def test_build_provider_selects_gemini_when_only_gemini_key_present(monkeypatch):
+    from agentshield.providers.gemini import GeminiProvider
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-selection-test")
+    provider, used_real_llm = demo._build_provider()
+    assert used_real_llm is True
+    assert isinstance(provider, GeminiProvider)
 
 
 # --- A configured provider failing does NOT silently fall back -----------
