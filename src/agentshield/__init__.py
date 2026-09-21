@@ -25,8 +25,16 @@ one?) on top of deterministic policy — see ``agentshield.jev`` for a
 provider backed by TypeSafe's Jev model. This is entirely optional: the
 Core has no dependency on Jev (or any other semantic provider) either, and
 ``agentshield.jev`` is never imported here.
+
+``ProposedAction``/``AgentProvider`` (from ``agentshield.agent``) are the
+shared, provider-neutral vocabulary an LLM (or other) provider uses to
+propose an action for an agent to ask AgentShield about — see
+``agentshield.providers.openai`` for a provider backed by the OpenAI API.
+The Core has no dependency on OpenAI or any other provider SDK either, and
+``agentshield.providers.openai`` is never imported here.
 """
 
+from .agent import AgentProvider, ProposedAction, ProviderError, build_decision_request
 from .audit import AuditEvent, AuditLog
 from .decision import Decision, Outcome
 from .engine import DecisionEngine
@@ -42,6 +50,10 @@ AuthorizationRequest = DecisionRequest
 __all__ = [
     "DecisionEngine",
     "DecisionRequest",
+    "AgentProvider",
+    "ProposedAction",
+    "ProviderError",
+    "build_decision_request",
     "AuditEvent",
     "AuditLog",
     "Decision",
