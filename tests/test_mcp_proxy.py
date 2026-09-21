@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from agentshield import AuthorizationEngine, Policy
+from agentshield import DecisionEngine, Policy
 from agentshield.mcp import (
     ApprovalResult,
     CallbackApprovalProvider,
@@ -52,7 +52,7 @@ DEMO_POLICY = Policy.from_dict(
 
 def make_gateway(**kwargs) -> MCPGateway:
     return MCPGateway(
-        engine=AuthorizationEngine(DEMO_POLICY),
+        engine=DecisionEngine(DEMO_POLICY),
         downstream=DownstreamMCPProxy(downstream_config()),
         server_name="demo",
         **kwargs,

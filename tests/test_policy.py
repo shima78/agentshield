@@ -1,19 +1,19 @@
 import pytest
 from pydantic import ValidationError
 
-from agentshield import AuthorizationRequest, Policy, PolicyError, PolicyRule
+from agentshield import DecisionRequest, Policy, PolicyError, PolicyRule
 
 
 def make_request(**overrides):
     defaults = dict(
         actor="agent",
         server="github",
-        tool="github.delete_repository",
+        action="github.delete_repository",
         arguments={},
         context={},
     )
     defaults.update(overrides)
-    return AuthorizationRequest(**defaults)
+    return DecisionRequest(**defaults)
 
 
 # --- Matching -----------------------------------------------------------
@@ -21,25 +21,25 @@ def make_request(**overrides):
 
 def test_exact_tool_match():
     rule = PolicyRule(name="r1", tool="github.delete_repository", outcome="deny", risk="high")
-    assert rule.matches(make_request(tool="github.delete_repository"))
-    assert not rule.matches(make_request(tool="github.create_repository"))
+    assert rule.matches(make_request(action="github.delete_repository"))
+    assert not rule.matches(make_request(action="github.create_repository"))
 
 
 def test_wildcard_tool_match():
     rule = PolicyRule(name="r1", tool="*.delete_*", outcome="deny", risk="high")
-    assert rule.matches(make_request(tool="github.delete_repository"))
-    assert rule.matches(make_request(tool="slack.delete_message"))
-    assert not rule.matches(make_request(tool="github.create_repository"))
+    assert rule.matches(make_request(action="github.delete_repository"))
+    assert rule.matches(make_request(action="slack.delete_message"))
+    assert not rule.matches(make_request(action="github.create_repository"))
 
 
 def test_no_tool_match():
     rule = PolicyRule(name="r1", tool="github.delete_repository", outcome="deny", risk="high")
-    assert not rule.matches(make_request(tool="github.archive_repository"))
+    assert not rule.matches(make_request(action="github.archive_repository"))
 
 
 def test_unset_tool_matches_any_tool():
     rule = PolicyRule(name="r1", outcome="allow", risk="low")
-    assert rule.matches(make_request(tool="anything.at_all"))
+    assert rule.matches(make_request(action="anything.at_all"))
 
 
 def test_server_match():

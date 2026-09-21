@@ -1,6 +1,6 @@
 from agentshield import (
-    AuthorizationEngine,
-    AuthorizationRequest,
+    DecisionEngine,
+    DecisionRequest,
     Outcome,
     Policy,
     RiskLevel,
@@ -12,19 +12,19 @@ def make_request(**overrides):
     defaults = dict(
         actor="agent",
         server="github",
-        tool="github.delete_repository",
+        action="github.delete_repository",
         arguments={},
         context={},
     )
     defaults.update(overrides)
-    return AuthorizationRequest(**defaults)
+    return DecisionRequest(**defaults)
 
 
 # --- Defaults ---------------------------------------------------------
 
 
 def test_default_allow_when_no_rule_matches():
-    engine = AuthorizationEngine(Policy(rules=[]))
+    engine = DecisionEngine(Policy(rules=[]))
     decision = engine.evaluate(make_request())
     assert decision.outcome == Outcome.ALLOW
     assert decision.allowed is True
@@ -47,8 +47,8 @@ def test_default_allow_when_rules_exist_but_none_match():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
-    decision = engine.evaluate(make_request(tool="github.create_repository"))
+    engine = DecisionEngine(policy)
+    decision = engine.evaluate(make_request(action="github.create_repository"))
     assert decision.outcome == Outcome.ALLOW
     assert decision.rule is None
 
@@ -70,8 +70,8 @@ def test_exact_beats_wildcard():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
-    decision = engine.evaluate(make_request(tool="github.delete_repository"))
+    engine = DecisionEngine(policy)
+    decision = engine.evaluate(make_request(action="github.delete_repository"))
     assert decision.rule == "exact-allow"
     assert decision.outcome == Outcome.ALLOW
 
@@ -85,8 +85,8 @@ def test_wildcard_beats_unconstrained():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
-    decision = engine.evaluate(make_request(tool="github.delete_repository"))
+    engine = DecisionEngine(policy)
+    decision = engine.evaluate(make_request(action="github.delete_repository"))
     assert decision.rule == "wildcard-deny"
     assert decision.outcome == Outcome.DENY
 
@@ -111,9 +111,9 @@ def test_more_context_constraints_wins():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
+    engine = DecisionEngine(policy)
     decision = engine.evaluate(
-        make_request(tool="merge_pull_request", context={"environment": "production"})
+        make_request(action="merge_pull_request", context={"environment": "production"})
     )
     assert decision.rule == "narrow"
     assert decision.outcome == Outcome.REVIEW
@@ -139,8 +139,8 @@ def test_more_specific_actor_server_wins():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
-    decision = engine.evaluate(make_request(tool="merge_pull_request", server="github"))
+    engine = DecisionEngine(policy)
+    decision = engine.evaluate(make_request(action="merge_pull_request", server="github"))
     assert decision.rule == "specific"
     assert decision.outcome == Outcome.DENY
 
@@ -164,8 +164,8 @@ def test_earlier_rule_wins_on_full_tie():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
-    decision = engine.evaluate(make_request(tool="merge_pull_request"))
+    engine = DecisionEngine(policy)
+    decision = engine.evaluate(make_request(action="merge_pull_request"))
     assert decision.rule == "first"
     assert decision.outcome == Outcome.ALLOW
 
@@ -189,9 +189,9 @@ def test_precedence_is_independent_of_rule_reordering_by_content():
             ]
         }
     )
-    request = make_request(tool="x")
-    assert AuthorizationEngine(policy_a).evaluate(request).rule == "first"
-    assert AuthorizationEngine(policy_b).evaluate(request).rule == "second"
+    request = make_request(action="x")
+    assert DecisionEngine(policy_a).evaluate(request).rule == "first"
+    assert DecisionEngine(policy_b).evaluate(request).rule == "second"
 
 
 # --- Safety: DENY cannot be overridden by a lower-precedence rule ------
@@ -216,8 +216,8 @@ def test_deny_not_overridden_by_lower_precedence_allow():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
-    decision = engine.evaluate(make_request(tool="github.delete_repository"))
+    engine = DecisionEngine(policy)
+    decision = engine.evaluate(make_request(action="github.delete_repository"))
     assert decision.outcome == Outcome.DENY
     assert decision.allowed is False
     assert decision.rule == "exact-deny"
@@ -242,8 +242,8 @@ def test_allow_not_overridden_by_lower_precedence_deny():
             ]
         }
     )
-    engine = AuthorizationEngine(policy)
-    decision = engine.evaluate(make_request(tool="github.delete_repository"))
+    engine = DecisionEngine(policy)
+    decision = engine.evaluate(make_request(action="github.delete_repository"))
     assert decision.outcome == Outcome.ALLOW
     assert decision.rule == "exact-allow"
 
@@ -255,8 +255,8 @@ def test_engine_does_not_mutate_policy_or_request():
     policy = Policy.from_dict(
         {"rules": [{"name": "r1", "tool": "x", "outcome": "allow", "risk": "low"}]}
     )
-    engine = AuthorizationEngine(policy)
-    request = make_request(tool="x")
+    engine = DecisionEngine(policy)
+    request = make_request(action="x")
     engine.evaluate(request)
     assert engine.policy is policy
-    assert request.tool == "x"
+    assert request.action == "x"

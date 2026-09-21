@@ -108,7 +108,7 @@ async def test_allowed_real_operation_reaches_github_and_is_audited():
     events = gateway.audit_log.events
     assert len(events) == 1
     event = events[0]
-    assert event.request.tool == "get_file_contents"
+    assert event.request.action == "get_file_contents"
     assert event.request.server == "github"
     assert event.decision.outcome.value == "allow"
 

@@ -1,11 +1,11 @@
 import pytest
 
-from agentshield import AuthorizationRequest, Decision, Outcome, RiskLevel
+from agentshield import Decision, DecisionRequest, Outcome, RiskLevel
 from agentshield.mcp import ApprovalResult, CallbackApprovalProvider
 
 
 def make_request():
-    return AuthorizationRequest(actor="agent", server="demo", tool="create_file", arguments={})
+    return DecisionRequest(actor="agent", server="demo", action="create_file", arguments={})
 
 
 def make_decision():

@@ -28,7 +28,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.memory import create_client_server_memory_streams
 
-from agentshield import AuthorizationEngine, Policy
+from agentshield import DecisionEngine, Policy
 from agentshield.mcp import (
     ApprovalResult,
     CallbackApprovalProvider,
@@ -65,7 +65,7 @@ DEMO_RULES = [
 def make_gateway(**kwargs) -> MCPGateway:
     downstream = DownstreamMCPProxy(DownstreamConfig(command=sys.executable, args=[str(SERVER_SCRIPT)]))
     return MCPGateway(
-        engine=AuthorizationEngine(Policy.from_dict({"rules": DEMO_RULES})),
+        engine=DecisionEngine(Policy.from_dict({"rules": DEMO_RULES})),
         downstream=downstream,
         server_name="demo",
         **kwargs,

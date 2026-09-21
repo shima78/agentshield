@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from agentshield import AuditLog, AuthorizationEngine, Policy
+from agentshield import AuditLog, DecisionEngine, Policy
 from agentshield.mcp import (
     ApprovalProviderError,
     ApprovalProviderRequiredError,
@@ -52,7 +52,7 @@ class FakeDownstreamProxy:
 
 @dataclass
 class FailingEngine:
-    """A stand-in AuthorizationEngine whose evaluate() always raises."""
+    """A stand-in DecisionEngine whose evaluate() always raises."""
 
     def evaluate(self, request):
         raise RuntimeError("engine exploded")
@@ -88,7 +88,7 @@ DEMO_POLICY = Policy.from_dict(
 
 def make_gateway(**kwargs) -> tuple[MCPGateway, FakeDownstreamProxy]:
     proxy = FakeDownstreamProxy()
-    engine = kwargs.pop("engine", None) or AuthorizationEngine(DEMO_POLICY)
+    engine = kwargs.pop("engine", None) or DecisionEngine(DEMO_POLICY)
     gateway = MCPGateway(
         engine=engine,
         downstream=proxy,

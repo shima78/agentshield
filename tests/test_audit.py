@@ -1,13 +1,13 @@
 from datetime import timezone
 
-from agentshield import AuditLog, AuthorizationRequest, Decision, Outcome, RiskLevel
+from agentshield import AuditLog, Decision, DecisionRequest, Outcome, RiskLevel
 
 
 def make_request():
-    return AuthorizationRequest(
+    return DecisionRequest(
         actor="agent",
         server="github",
-        tool="merge_pull_request",
+        action="merge_pull_request",
         arguments={},
         context={},
     )
