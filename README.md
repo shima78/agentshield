@@ -38,10 +38,21 @@ Agent -> AgentShield -> Policy -> ALLOW / REVIEW / DENY -> Tool
                          │
               ┌──────────┴──────────┐
               ▼                     ▼
-         Python SDK            MCP Gateway      ← Phase 2 (this repo)
+         Python SDK            MCP Gateway      ← Phase 2 / 2.5 (this repo)
               │                     │
          Developers          AI Agents / MCP
 ```
+
+AgentShield can be used two ways, both built on the same Core and the same
+`MCPGateway` — neither duplicates authorization logic:
+
+* **Python SDK / Library** — embed `MCPGateway` (or the Core directly)
+  inside your own Python process. See [`examples/run_demo.py`](examples/run_demo.py).
+* **MCP Gateway (real MCP server)** — run AgentShield itself as an MCP
+  server that a real MCP client (Claude Desktop, Cursor, or any other
+  MCP-compatible client) connects to, exactly like any other MCP server.
+  See [`examples/run_demo_server.py`](examples/run_demo_server.py) and
+  "Running AgentShield as a real MCP server" below.
 
 The **Core** (`agentshield.decision`, `.policy`, `.engine`, `.risk`,
 `.audit`) is a small, dependency-light Python library. It is deterministic:
@@ -259,7 +270,12 @@ Every intercepted `tools/call` is mapped onto the Core's
 ### ALLOW / REVIEW / DENY at the gateway
 
 * **ALLOW** — the call is forwarded to the downstream server unmodified;
-  its result is returned to the caller.
+  its result is returned to the caller exactly as the downstream server
+  produced it — **including** a downstream-reported error
+  (`CallToolResult.is_error=True`, e.g. "file not found"). That is a normal
+  MCP result, not a gateway failure, so it is never turned into a Python
+  exception; only a call that could not be carried out at all (a broken
+  connection, a malformed protocol response) raises `DownstreamToolError`.
 * **DENY** — the downstream server is **never called**. The gateway returns
   a `GatewayCallResult` with `executed=False` and the decision (rule, risk,
   reason) attached — no arguments or internal details are leaked back.
@@ -299,42 +315,148 @@ subclasses) for gateway/transport failures, distinct from Core errors like
 never forwards), `ApprovalProviderRequiredError`, `ApprovalProviderError`,
 `GatewayConfigError`. Downstream errors are never swallowed.
 
+## Running AgentShield as a real MCP server (Phase 2.5)
+
+`agentshield.mcp.server` is a thin adapter that exposes an `MCPGateway` as a
+real, upstream-facing MCP server over stdio, using the official MCP SDK's
+`Server`/`stdio_server`. It contains **no authorization logic of its own** —
+every `tools/call` is routed straight through the same `MCPGateway.call_tool()`
+used by the library form above:
+
+```text
+MCP Client / AI Agent
+         |
+         | MCP / stdio
+         v
++----------------------+
+|     AgentShield      |
+|      MCP Server      |   agentshield.mcp.server — protocol only
++----------+-----------+
+           |
+           v
+      MCPGateway          agentshield.mcp.gateway
+           |
+           v
+  AuthorizationEngine      agentshield Core — MCP-agnostic
+           |
+    +------+------+------+
+    |             |      |
+  ALLOW         REVIEW  DENY
+    |             |      |
+    |          approval STOP
+    |             |
+    +-------------+
+           |
+           v
+  DownstreamMCPProxy -> Downstream MCP Server
+```
+
+Start it:
+
+```bash
+pip install -e ".[mcp]"
+python -m agentshield.mcp.server --config examples/gateway.yaml
+```
+
+MCP protocol traffic uses stdout; all diagnostics go to stderr via the
+standard `logging` module, so stdout stays clean for the protocol. The
+downstream connection is established once at startup and kept alive for the
+life of the upstream session; it is always closed on shutdown, including on
+error, so no subprocess is leaked.
+
+**No `ApprovalProvider` is wired up by this CLI launcher.** stdin/stdout in
+this process are owned by the MCP protocol stream, so the interactive
+`ConsoleApprovalProvider` cannot be used here — a REVIEW decision therefore
+fails closed (the client gets a clear "no approval provider configured"
+result, and nothing is forwarded downstream). To approve REVIEW calls,
+embed `AgentShieldMCPServer` directly and pass a `CallbackApprovalProvider`
+backed by Slack, a web UI, a queue, etc. — see
+[`tests/test_mcp_server.py`](tests/test_mcp_server.py) for a worked example.
+
+### Using it from Claude Desktop / Cursor / other MCP clients
+
+Add it to the client's MCP server configuration, e.g. Claude Desktop's
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "agentshield": {
+      "command": "python",
+      "args": [
+        "-m", "agentshield.mcp.server",
+        "--config", "/absolute/path/to/examples/gateway.yaml"
+      ]
+    }
+  }
+}
+```
+
+The client then sees exactly the downstream server's tools (names,
+descriptions, input schemas, unmodified) and every call it makes is
+authorized by policy before AgentShield forwards it.
+
+### ALLOW / REVIEW / DENY through the real server
+
+Against [`examples/mcp_policy.yaml`](examples/mcp_policy.yaml):
+
+```text
+echo(...)          -> ALLOW  -> forwarded; downstream result returned as-is
+create_file(...)   -> REVIEW -> blocked (no approval provider configured)
+delete_file(...)   -> DENY   -> blocked; downstream never called
+```
+
 ## Local demo
 
 [`examples/mcp_server.py`](examples/mcp_server.py) is a tiny fake MCP server
 with three harmless tools (`echo`, `create_file`, `delete_file`), confined to
 a local sandbox directory. [`examples/mcp_policy.yaml`](examples/mcp_policy.yaml)
 allows `echo`, requires review for `create_file`, and denies `delete_file`.
+Both demos are entirely local — no network access, no API keys, no external
+services.
 
 ```bash
 pip install -e ".[mcp]"
+
+# Library form: embeds MCPGateway directly in this process.
 python examples/run_demo.py
+
+# Real server form: a real MCP client connects to
+# `python -m agentshield.mcp.server` as a subprocess, exactly like Claude
+# Desktop or Cursor would.
+python examples/run_demo_server.py
 ```
 
-This runs `MCP Client -> AgentShield -> Fake MCP Server` end to end and
-prints one ALLOW, one REVIEW (auto-approved for the demo), one DENY, and the
-resulting audit trail.
+Both run `MCP Client -> AgentShield -> Fake MCP Server` end to end and
+demonstrate ALLOW, REVIEW, and DENY plus (for `run_demo.py`) the resulting
+audit trail.
 
 ## What's implemented
 
 * **Phase 1 — Core**: typed decision/request/policy models, deterministic
   matching and precedence, a default-allow fallback, and an in-memory audit
   log.
-* **Phase 2 — MCP Gateway**: a policy-enforcement proxy for a downstream MCP
-  server reached over stdio, using the official MCP SDK; tool discovery;
-  ALLOW/REVIEW/DENY enforcement; a pluggable approval abstraction; audit
-  logging.
+* **Phase 2 — MCP Gateway library**: `MCPGateway`, a policy-enforcement proxy
+  for a downstream MCP server reached over stdio, using the official MCP
+  SDK; tool discovery; ALLOW/REVIEW/DENY enforcement; a pluggable approval
+  abstraction; audit logging.
+* **Phase 2.5 — real MCP server**: `agentshield.mcp.server` exposes
+  `MCPGateway` as an actual upstream-facing MCP server over stdio (a thin
+  protocol adapter with no authorization logic of its own), launchable via
+  `python -m agentshield.mcp.server --config ...` and usable directly from
+  Claude Desktop, Cursor, or any other MCP-compatible client.
 
-Deliberately **not** implemented yet: a Python SDK, a CLI, an HTTP server, a
-database, a web dashboard, authentication, an LLM-based reasoning provider
-("Jev"), or any integration with a specific tool ecosystem (GitHub, AWS,
-ComfyUI, ...).
+Deliberately **not** implemented yet: a Python SDK package, a general CLI, an
+HTTP server, a database, a web dashboard, authentication, an LLM-based
+reasoning provider ("Jev"), or any integration with a specific tool
+ecosystem (GitHub, AWS, ComfyUI, ...).
 
 ## Roadmap
 
 ```text
 Core (Phase 1)
-→ MCP Gateway (Phase 2, this repo)
+→ MCP Gateway library (Phase 2, this repo)
+→ Real MCP server (Phase 2.5, this repo)
 → Python SDK
 → Jev provider
 → TypeScript SDK
