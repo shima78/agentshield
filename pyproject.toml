@@ -19,10 +19,14 @@ dependencies = [
 mcp = [
     "mcp>=2.0,<3.0",
 ]
+jev = [
+    "typesafe-sdk>=0.7,<1.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "agentshield[mcp]",
+    "agentshield[jev]",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -32,5 +36,5 @@ packages = ["src/agentshield"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "integration: requires network access and real credentials (e.g. a live GitHub MCP server and GITHUB_PERSONAL_ACCESS_TOKEN); skips itself automatically when prerequisites are absent, so plain `pytest` stays offline",
+    "integration: requires network access and real credentials (e.g. a live GitHub MCP server + GITHUB_PERSONAL_ACCESS_TOKEN, or the real Jev API + TYPESAFE_API_KEY); skips itself automatically when prerequisites are absent, so plain `pytest` stays offline",
 ]
