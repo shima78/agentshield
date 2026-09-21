@@ -19,6 +19,7 @@ from agentshield.mcp import (
     DownstreamMCPProxy,
     MCPGateway,
 )
+from agentshield.mcp.proxy import _resolve_env
 
 EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / "examples"
 SERVER_SCRIPT = EXAMPLES_DIR / "mcp_server.py"
@@ -159,3 +160,33 @@ async def test_proxy_methods_require_connection_first():
         await proxy.list_tools()
     with pytest.raises(DownstreamConnectionError):
         await proxy.call_tool("echo", {"message": "hi"})
+
+
+# --- Env var placeholder resolution (used for secrets like GitHub tokens) --
+#
+# These let a committed gateway config reference a secret by name
+# (e.g. "${GITHUB_PERSONAL_ACCESS_TOKEN}") without ever containing its
+# value; the value is only resolved from this process's environment right
+# before the downstream subprocess is spawned.
+
+
+def test_resolve_env_none_passes_through():
+    assert _resolve_env(None) is None
+
+
+def test_resolve_env_passes_through_literal_values():
+    assert _resolve_env({"GITHUB_TOOLSETS": "repos,pull_requests"}) == {
+        "GITHUB_TOOLSETS": "repos,pull_requests"
+    }
+
+
+def test_resolve_env_expands_placeholder_from_process_environment(monkeypatch):
+    monkeypatch.setenv("AGENTSHIELD_TEST_TOKEN", "secret-value")
+    resolved = _resolve_env({"GITHUB_PERSONAL_ACCESS_TOKEN": "${AGENTSHIELD_TEST_TOKEN}"})
+    assert resolved == {"GITHUB_PERSONAL_ACCESS_TOKEN": "secret-value"}
+
+
+def test_resolve_env_missing_placeholder_variable_raises_clearly(monkeypatch):
+    monkeypatch.delenv("AGENTSHIELD_TEST_TOKEN_MISSING", raising=False)
+    with pytest.raises(DownstreamConnectionError, match="AGENTSHIELD_TEST_TOKEN_MISSING"):
+        _resolve_env({"GITHUB_PERSONAL_ACCESS_TOKEN": "${AGENTSHIELD_TEST_TOKEN_MISSING}"})

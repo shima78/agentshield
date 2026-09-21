@@ -7,6 +7,8 @@ official ``mcp`` SDK). The gateway treats it as an opaque "list tools" /
 
 from __future__ import annotations
 
+import os
+import re
 from contextlib import AsyncExitStack
 from typing import Any, Optional
 
@@ -16,6 +18,33 @@ from mcp.types import CallToolResult, Tool
 
 from .errors import DownstreamConnectionError, DownstreamToolError
 from .models import DownstreamConfig
+
+# Matches a whole env value of the form "${VAR_NAME}" — the only supported
+# placeholder form. This lets a committed gateway config reference a secret
+# (e.g. a GitHub token) by name without ever containing its value; the
+# value is resolved from this process's own environment only at the moment
+# the downstream subprocess is spawned, and is never stored back onto the
+# config model (which stays safe to log/print/repr).
+_ENV_PLACEHOLDER = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def _resolve_env(env: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+    if env is None:
+        return None
+    resolved: dict[str, str] = {}
+    for key, value in env.items():
+        match = _ENV_PLACEHOLDER.match(value)
+        if match is None:
+            resolved[key] = value
+            continue
+        var_name = match.group(1)
+        if var_name not in os.environ:
+            raise DownstreamConnectionError(
+                f"Downstream config env key {key!r} references environment "
+                f"variable '{var_name}', which is not set."
+            )
+        resolved[key] = os.environ[var_name]
+    return resolved
 
 
 class DownstreamMCPProxy:
@@ -30,7 +59,9 @@ class DownstreamMCPProxy:
         if self._session is not None:
             return
         params = StdioServerParameters(
-            command=self._config.command, args=self._config.args, env=self._config.env
+            command=self._config.command,
+            args=self._config.args,
+            env=_resolve_env(self._config.env),
         )
         stack = AsyncExitStack()
         try:
