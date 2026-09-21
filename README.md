@@ -178,6 +178,38 @@ version of this.
 > with `tool=...` must change to `action=...`. `PolicyRule.tool` (the policy
 > YAML field) is **unchanged** — existing policy files keep working as-is.
 
+## Using AgentShield from an Agent
+
+The pattern above is the whole integration surface: a Python agent (with
+or without a framework) calls `shield.evaluate(request)` directly, as a
+decision service/library, **before** doing anything else. AgentShield is
+not an execution proxy — it never sits between the agent and whatever it
+would eventually call (a tool, an MCP server, a deploy script). It only
+needs to be asked first:
+
+```python
+decision = shield.evaluate(request)
+
+if decision.outcome == Outcome.DENY:
+    stop()
+elif decision.outcome == Outcome.REVIEW:
+    review()
+else:
+    execute()
+```
+
+See [`examples/agent_demo.py`](examples/agent_demo.py) for a complete,
+runnable version of this: a tiny "agent" function proposes a production
+deployment, prints what deterministic policy (and, if configured, Jev
+semantic evaluation) decided, and only prints a simulated
+`🚀 Deploying version 2.4.1...` when the decision actually permits it —
+a `REVIEW` or `DENY` decision stops the demo before that point.
+
+```bash
+python examples/agent_demo.py                    # deterministic policy only
+TYPESAFE_API_KEY=... python examples/agent_demo.py  # + real Jev semantic evaluation
+```
+
 ## Example policy
 
 ```yaml
@@ -518,6 +550,14 @@ delete_file(...)   -> DENY   -> blocked; downstream never called
 ```bash
 # Core only, no MCP: the primary usage pattern.
 python examples/sdk_example.py
+
+# A tiny "agent" that consults AgentShield before deploying, then only
+# simulates the deploy if the decision permits it.
+python examples/agent_demo.py
+
+# Same, with real Jev semantic evaluation added on top.
+pip install -e ".[jev]"
+TYPESAFE_API_KEY=... python examples/agent_demo.py
 ```
 
 The two demos below need the optional MCP extra:
