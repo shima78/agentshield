@@ -1,0 +1,15 @@
+server:
+  name: demo
+
+downstream:
+  command: python
+  args:
+    - examples/mcp_server.py
+
+context:
+  environment: production
+
+policy:
+  path: examples/mcp_policy.yaml
+
+actor: agent

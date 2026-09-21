@@ -1,0 +1,18 @@
+rules:
+  - name: allow-echo
+    tool: echo
+    outcome: allow
+    risk: low
+    reason: "Echo is harmless and always allowed."
+
+  - name: review-create-file
+    tool: create_file
+    outcome: review
+    risk: medium
+    reason: "Creating files requires human approval."
+
+  - name: deny-delete-file
+    tool: delete_file
+    outcome: deny
+    risk: critical
+    reason: "Deleting files is blocked by default."
