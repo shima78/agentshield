@@ -33,7 +33,7 @@ _ALLOWED_BY_OUTCOME: dict[Outcome, bool] = {
 
 
 class Decision(BaseModel):
-    """The result of evaluating an ``AuthorizationRequest`` against a policy."""
+    """The result of evaluating a ``DecisionRequest`` against a policy."""
 
     model_config = ConfigDict(frozen=True)
 

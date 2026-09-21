@@ -2,9 +2,14 @@
 
 This module defines:
 
-* ``AuthorizationRequest`` — a typed description of an action being
-  authorized.
+* ``DecisionRequest`` — a typed, generic description of an action an agent
+  wants to take. It has no knowledge of MCP or any other transport/tool
+  protocol; ``action`` is a plain string identifier chosen by the caller
+  (an MCP tool name, an API endpoint, a workflow step, anything).
 * ``PolicyRule`` — a single, typed rule with optional matching constraints.
+  Its ``tool`` field name is kept as-is (rather than renamed to match
+  ``DecisionRequest.action``) so existing policy YAML files keep working
+  unchanged; it matches against ``DecisionRequest.action``.
 * ``Policy`` — an ordered collection of rules, loadable from YAML or dict.
 
 Matching itself lives on ``PolicyRule.matches``; the *engine* (see
@@ -28,14 +33,20 @@ class PolicyError(Exception):
     """Raised when a policy cannot be loaded or parsed."""
 
 
-class AuthorizationRequest(BaseModel):
-    """A typed description of an action an agent wants to perform."""
+class DecisionRequest(BaseModel):
+    """A typed, generic description of an action an agent wants to perform.
+
+    This is the Core's request model: it is not tied to MCP, or to any
+    other specific tool/transport protocol. An MCP tool call, an HTTP API
+    call, a workflow step, or anything else an agent might want to do can
+    all be expressed as a ``DecisionRequest``.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     actor: str
     server: Optional[str] = None
-    tool: str
+    action: str
     arguments: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -77,33 +88,33 @@ class PolicyRule(BaseModel):
             return value.lower()
         return value
 
-    def matches(self, request: AuthorizationRequest) -> bool:
+    def matches(self, request: DecisionRequest) -> bool:
         """Return True if this rule's constraints all hold for ``request``."""
         if self.actor is not None and self.actor != request.actor:
             return False
         if self.server is not None and self.server != request.server:
             return False
-        if self.tool is not None and not _tool_matches(self.tool, request.tool):
+        if self.tool is not None and not _tool_matches(self.tool, request.action):
             return False
         for key, value in self.context.items():
             if key not in request.context or request.context[key] != value:
                 return False
         return True
 
-    def is_exact_tool_match(self, request: AuthorizationRequest) -> bool:
-        """True if ``tool`` is set and matches ``request.tool`` with no wildcard."""
+    def is_exact_tool_match(self, request: DecisionRequest) -> bool:
+        """True if ``tool`` is set and matches ``request.action`` with no wildcard."""
         return (
             self.tool is not None
             and not _is_wildcard_pattern(self.tool)
-            and self.tool == request.tool
+            and self.tool == request.action
         )
 
-    def is_wildcard_tool_match(self, request: AuthorizationRequest) -> bool:
-        """True if ``tool`` is a wildcard pattern that matches ``request.tool``."""
+    def is_wildcard_tool_match(self, request: DecisionRequest) -> bool:
+        """True if ``tool`` is a wildcard pattern that matches ``request.action``."""
         return (
             self.tool is not None
             and _is_wildcard_pattern(self.tool)
-            and _tool_matches(self.tool, request.tool)
+            and _tool_matches(self.tool, request.action)
         )
 
 

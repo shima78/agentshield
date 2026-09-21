@@ -12,13 +12,13 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 from .decision import Decision
-from .policy import AuthorizationRequest
+from .policy import DecisionRequest
 
 ApprovalOutcome = Literal["approved", "rejected"]
 
 
 class AuditEvent(BaseModel):
-    """A single recorded authorization decision.
+    """A single recorded decision.
 
     ``approval_required``/``approval_outcome`` are optional, backward-compatible
     fields: callers that never deal with REVIEW/approval (e.g. Core-only
@@ -29,7 +29,7 @@ class AuditEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     timestamp: datetime
-    request: AuthorizationRequest
+    request: DecisionRequest
     decision: Decision
     approval_required: bool = False
     approval_outcome: Optional[ApprovalOutcome] = None
@@ -43,13 +43,13 @@ class AuditLog:
 
     def record(
         self,
-        request: AuthorizationRequest,
+        request: DecisionRequest,
         decision: Decision,
         *,
         approval_required: bool = False,
         approval_outcome: Optional[ApprovalOutcome] = None,
     ) -> AuditEvent:
-        """Record an authorization decision and return the stored event."""
+        """Record a decision and return the stored event."""
         event = AuditEvent(
             timestamp=datetime.now(timezone.utc),
             request=request,

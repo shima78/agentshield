@@ -1,9 +1,11 @@
-"""The authorization engine.
+"""The decision engine.
 
-``AuthorizationEngine`` evaluates a single ``AuthorizationRequest`` against
-a ``Policy`` and returns a typed ``Decision``. It never calls an external
-service and never performs the action itself — it is an evaluator, not an
-executor.
+``DecisionEngine`` evaluates a single ``DecisionRequest`` against a
+``Policy`` and returns a typed ``Decision``. It never calls an external
+service and never performs the action itself — AgentShield decides, the
+agent/application executes. It has no dependency on MCP or any other
+transport/tool protocol; an MCP adapter (``agentshield.mcp``) is one
+possible caller among others.
 
 Precedence (highest first) among rules that match a request:
 
@@ -25,14 +27,14 @@ Jev) may override a DENY. See the README for the full rationale.
 from __future__ import annotations
 
 from .decision import Decision, Outcome
-from .policy import AuthorizationRequest, Policy, PolicyRule
+from .policy import DecisionRequest, Policy, PolicyRule
 from .risk import RiskLevel
 
 DEFAULT_ALLOW_REASON = "No policy matched; action allowed by default."
 
 
-class AuthorizationEngine:
-    """Evaluates authorization requests against a policy."""
+class DecisionEngine:
+    """Evaluates decision requests against a policy."""
 
     def __init__(self, policy: Policy) -> None:
         self._policy = policy
@@ -41,7 +43,7 @@ class AuthorizationEngine:
     def policy(self) -> Policy:
         return self._policy
 
-    def evaluate(self, request: AuthorizationRequest) -> Decision:
+    def evaluate(self, request: DecisionRequest) -> Decision:
         """Evaluate ``request`` and return the resulting ``Decision``."""
         matches = [
             (index, rule)
@@ -73,7 +75,7 @@ class AuthorizationEngine:
 
     @staticmethod
     def _precedence_key(
-        rule: PolicyRule, request: AuthorizationRequest, index: int
+        rule: PolicyRule, request: DecisionRequest, index: int
     ) -> tuple[int, int, int, int]:
         if rule.is_exact_tool_match(request):
             tool_specificity = 2
