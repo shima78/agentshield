@@ -264,15 +264,55 @@ the Agent and a tool — nothing here talks MCP, and MCP is not required for
 this integration at all (it remains one *optional* adapter among others,
 see above).
 
+### Provider-agnostic: the Agent never touches an SDK
+
+The LLM step is behind a small, swappable interface, not hard-coded to
+OpenAI — the dependency direction is:
+
+```text
+LLM Provider
+    |
+    | proposes
+    v
+  Agent
+    |
+    | asks for a decision
+    v
+AgentShield
+    |
+    | ALLOW / REVIEW / DENY
+    v
+  Agent
+    |
+    | executes only after ALLOW
+    v
+  Action
+```
+
+`agentshield.agent` defines the provider-neutral vocabulary — `ProposedAction`
+(`action`/`arguments`/`context`, adapted directly onto the existing
+`DecisionRequest` with `build_decision_request()`, no parallel abstraction)
+and the `AgentProvider` interface (`propose_action(user_request) ->
+ProposedAction`). It has no dependency on any specific provider SDK.
+`agentshield.providers.openai.OpenAIProvider` is one implementation of it —
+it alone creates the OpenAI client, reads `OPENAI_API_KEY`, and converts
+the response; the agent loop never imports `openai`, never sees an API
+key, and never sees a provider response object. **The provider does not
+know about AgentShield. AgentShield does not know about OpenAI. The agent
+connects the two.**
+
+If a configured `OpenAIProvider` call fails, it raises `ProviderError` —
+the agent does not silently fall back to a different provider; it fails
+safely and does not execute.
+
 [`examples/real_agent_demo.py`](examples/real_agent_demo.py) is a complete,
-runnable version of this: a small Python agent takes a natural-language
-user request, asks an LLM to propose a structured action
-(`{"action", "arguments", "context"}`), converts that directly into a
-`DecisionRequest` — no parallel abstraction — and only then calls
-`shield.evaluate(request)`. The three scenarios are the same ones used by
+runnable version of this. The three scenarios are the same ones used by
 `agent_demo.py` above (production DENY, staging ALLOW-but-Jev-says-REVIEW,
 staging ALLOW-and-Jev-agrees), driven this time by an LLM-proposed action
-instead of a hand-written one.
+instead of a hand-written one. Its own `DeterministicDemoProvider` —
+implementing the exact same `AgentProvider` interface `OpenAIProvider`
+does — stands in for the LLM step when no `OPENAI_API_KEY` is set,
+clearly labeled and never pretending to be a real LLM call.
 
 ```bash
 pip install -e ".[agent-demo,jev]"
@@ -281,11 +321,10 @@ export TYPESAFE_API_KEY=...    # for semantic evaluation; never committed, never
 python examples/real_agent_demo.py
 ```
 
-Both are optional and independent: without `OPENAI_API_KEY`, a small
-deterministic stand-in takes the LLM's place for the "propose an action"
-step (clearly labeled as such, never pretending to be a real LLM call);
-without `TYPESAFE_API_KEY`, semantic evaluation is skipped (also clearly
-labeled) and the deterministic-only decision is used.
+Both are optional and independent: without `OPENAI_API_KEY`, the
+deterministic provider is used instead; without `TYPESAFE_API_KEY`,
+semantic evaluation is skipped (also clearly labeled) and the
+deterministic-only decision is used.
 
 ## Example policy
 
