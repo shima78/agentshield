@@ -199,16 +199,33 @@ else:
 ```
 
 See [`examples/agent_demo.py`](examples/agent_demo.py) for a complete,
-runnable version of this: a tiny "agent" function proposes a production
-deployment, prints what deterministic policy (and, if configured, Jev
-semantic evaluation) decided, and only prints a simulated
-`🚀 Deploying version 2.4.1...` when the decision actually permits it —
-a `REVIEW` or `DENY` decision stops the demo before that point.
+runnable version of this, as three small scenarios against one policy.
+**Policy knows the rules. Jev evaluates the situation:**
+
+1. **Deterministic DENY** — `delete_database` in production. Policy alone
+   settles this; Jev is never even consulted, and could not override it
+   if it were.
+2. **Policy ALLOW, Jev recommends REVIEW** — a staging deploy, which
+   policy permits outright — but the situation (a large database
+   migration, late on a Friday) is one a semantic evaluator can flag as
+   worth a second look, even though nothing technically forbids it.
+3. **Policy ALLOW, Jev agrees** — the same staging deploy rule, but a
+   small, routine, Tuesday-morning change: nothing here should raise a
+   flag, and (with real Jev configured) nothing does.
 
 ```bash
-python examples/agent_demo.py                    # deterministic policy only
-TYPESAFE_API_KEY=... python examples/agent_demo.py  # + real Jev semantic evaluation
+python examples/agent_demo.py                       # deterministic policy only
+pip install -e ".[jev]"
+TYPESAFE_API_KEY=... python examples/agent_demo.py   # + real Jev semantic evaluation
 ```
+
+Without `TYPESAFE_API_KEY` set, every scenario prints `With Jev: not
+evaluated (...)` and falls back to the deterministic-only result — the
+demo never fabricates a semantic verdict. This is a decision, not an
+enforcement mechanism or a security guarantee: the simulated
+`🚀 ... executed.` line only ever prints when the returned `Decision`
+actually permits it, but AgentShield itself never executes anything —
+the agent remains responsible for that.
 
 ## Example policy
 
@@ -551,8 +568,9 @@ delete_file(...)   -> DENY   -> blocked; downstream never called
 # Core only, no MCP: the primary usage pattern.
 python examples/sdk_example.py
 
-# A tiny "agent" that consults AgentShield before deploying, then only
-# simulates the deploy if the decision permits it.
+# A tiny "agent" that consults AgentShield before acting, across three
+# scenarios (deterministic DENY, policy-ALLOW-but-Jev-says-REVIEW,
+# policy-ALLOW-and-Jev-agrees) -- see "Using AgentShield from an Agent" above.
 python examples/agent_demo.py
 
 # Same, with real Jev semantic evaluation added on top.
