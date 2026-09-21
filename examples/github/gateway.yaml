@@ -1,0 +1,36 @@
+# Example AgentShield gateway config for the real GitHub MCP server.
+#
+# Launches github/github-mcp-server (GitHub's official MCP server) locally
+# via Docker, exactly as documented at
+# https://github.com/github/github-mcp-server#local-github-mcp-server
+#
+# Required: GITHUB_PERSONAL_ACCESS_TOKEN must be set in AgentShield's own
+# environment before starting the gateway. The "${VAR}" form below is
+# resolved from that environment at connect time; the token itself is
+# never written to this file. See examples/github/README.md.
+server:
+  name: github
+
+downstream:
+  command: docker
+  args:
+    - run
+    - -i
+    - --rm
+    - -e
+    - GITHUB_PERSONAL_ACCESS_TOKEN
+    - -e
+    - GITHUB_TOOLSETS
+    - ghcr.io/github/github-mcp-server
+  env:
+    GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+    # Keep the tool surface small and predictable for this demo policy.
+    GITHUB_TOOLSETS: "repos,pull_requests,secret_protection"
+
+context:
+  environment: development
+
+policy:
+  path: examples/github/policy.yaml
+
+actor: agent

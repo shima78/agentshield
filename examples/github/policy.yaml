@@ -1,0 +1,39 @@
+# Example AgentShield policy for the real GitHub MCP server.
+#
+# Tool names below are the real tool names exposed by github/github-mcp-server
+# (https://github.com/github/github-mcp-server) as of this writing — not
+# invented. See examples/github/README.md for how to inspect the live tool
+# list for yourself.
+rules:
+  - name: allow-read-file-contents
+    tool: get_file_contents
+    outcome: allow
+    risk: low
+    reason: "Reading file contents is a harmless, read-only operation."
+
+  - name: allow-search-repositories
+    tool: search_repositories
+    outcome: allow
+    risk: low
+    reason: "Searching repositories is a harmless, read-only operation."
+
+  - name: block-secret-scanning-access
+    tool: "*secret*"
+    outcome: deny
+    risk: critical
+    reason: "Access to secret scanning data is blocked by AgentShield."
+
+  - name: block-repository-deletion
+    tool: delete_repository
+    outcome: deny
+    risk: critical
+    reason: "Repository deletion is blocked by AgentShield."
+
+  - name: production-merge
+    server: github
+    tool: merge_pull_request
+    context:
+      environment: production
+    outcome: review
+    risk: high
+    reason: "Production merges require human approval."
