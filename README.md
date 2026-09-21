@@ -227,6 +227,66 @@ enforcement mechanism or a security guarantee: the simulated
 actually permits it, but AgentShield itself never executes anything —
 the agent remains responsible for that.
 
+## Using AgentShield with an AI Agent
+
+The pattern above works the same when the proposed action itself comes
+from an LLM rather than being written directly in code: **the Agent
+decides what it wants to do; AgentShield decides whether that proposed
+action should proceed; the Agent executes only after receiving the
+decision.**
+
+```text
+User
+  |
+  v
+AI Agent
+  |
+  v
+DecisionRequest
+  |
+  v
+AgentShield
+  |-- Deterministic Policy
+  +-- optional Jev
+  |
+  v
+ALLOW / REVIEW / DENY
+  |
+  v
+AI Agent
+  |
+  v
+Tool / API / Action
+```
+
+**AgentShield is not an execution proxy.** It does not need to sit between
+the Agent and a tool — nothing here talks MCP, and MCP is not required for
+this integration at all (it remains one *optional* adapter among others,
+see above).
+
+[`examples/real_agent_demo.py`](examples/real_agent_demo.py) is a complete,
+runnable version of this: a small Python agent takes a natural-language
+user request, asks an LLM to propose a structured action
+(`{"action", "arguments", "context"}`), converts that directly into a
+`DecisionRequest` — no parallel abstraction — and only then calls
+`shield.evaluate(request)`. The three scenarios are the same ones used by
+`agent_demo.py` above (production DENY, staging ALLOW-but-Jev-says-REVIEW,
+staging ALLOW-and-Jev-agrees), driven this time by an LLM-proposed action
+instead of a hand-written one.
+
+```bash
+pip install -e ".[agent-demo,jev]"
+export OPENAI_API_KEY=...      # for the LLM step; never committed, never printed
+export TYPESAFE_API_KEY=...    # for semantic evaluation; never committed, never printed
+python examples/real_agent_demo.py
+```
+
+Both are optional and independent: without `OPENAI_API_KEY`, a small
+deterministic stand-in takes the LLM's place for the "propose an action"
+step (clearly labeled as such, never pretending to be a real LLM call);
+without `TYPESAFE_API_KEY`, semantic evaluation is skipped (also clearly
+labeled) and the deterministic-only decision is used.
+
 ## Example policy
 
 ```yaml
@@ -343,13 +403,19 @@ decision = shield.evaluate(
 )
 ```
 
-**Deterministic policy remains authoritative.** `DecisionEngine` never
-consults the semantic evaluator for a request that deterministic policy
-already denies. When it is consulted, its verdict can only ever escalate
-an `ALLOW` toward `REVIEW` — it can never produce `DENY`, and never
-downgrades an existing `REVIEW`. `Decision.confidence` is set from Jev's
-own confidence score when a semantic evaluation ran (deterministic-only
-decisions keep `confidence = 1.0`, as before).
+**Deterministic policy remains authoritative, and the semantic evaluator
+is only ever consulted for an `ALLOW`:**
+
+```text
+DENY   -> final; Jev is never consulted
+REVIEW -> final; Jev is never consulted (policy already asked for human
+          attention -- there is nothing more for semantic judgment to add)
+ALLOW  -> Jev is consulted, and may escalate to REVIEW -- never to DENY
+```
+
+`Decision.confidence` is set from Jev's own confidence score when a
+semantic evaluation ran (all other decisions keep `confidence = 1.0`, as
+before).
 
 This is entirely optional: `agentshield.jev` is never imported by the Core
 or by `DecisionEngine` itself (see `tests/test_core_independence.py`), and
@@ -576,6 +642,12 @@ python examples/agent_demo.py
 # Same, with real Jev semantic evaluation added on top.
 pip install -e ".[jev]"
 TYPESAFE_API_KEY=... python examples/agent_demo.py
+
+# The same three scenarios, but the action is proposed by an LLM (or a
+# deterministic stand-in without one) instead of hand-written in code.
+pip install -e ".[agent-demo,jev]"
+python examples/real_agent_demo.py
+OPENAI_API_KEY=... TYPESAFE_API_KEY=... python examples/real_agent_demo.py
 ```
 
 The two demos below need the optional MCP extra:
