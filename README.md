@@ -294,15 +294,16 @@ AgentShield
 `DecisionRequest` with `build_decision_request()`, no parallel abstraction)
 and the `AgentProvider` interface (`propose_action(user_request) ->
 ProposedAction`). It has no dependency on any specific provider SDK.
-Two implementations ship: `agentshield.providers.anthropic.AnthropicProvider`
-(Claude Messages API, native structured output) and
-`agentshield.providers.openai.OpenAIProvider` (chat completions, JSON
-mode). Each alone creates its own client, reads its own API key
-(`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`), and converts the response; the
-agent loop never imports `anthropic`/`openai`, never sees an API key, and
-never sees a provider response object. **The provider does not know about
-AgentShield. AgentShield does not know about Anthropic or OpenAI. The
-agent connects the two.**
+Three implementations ship: `agentshield.providers.anthropic.AnthropicProvider`
+(Claude Messages API, native structured output), `agentshield.providers.openai.OpenAIProvider`
+(chat completions, JSON mode), and `agentshield.providers.gemini.GeminiProvider`
+(Gemini structured JSON output). Each alone creates its own client, reads
+its own API key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`),
+and converts the response; the agent loop never imports
+`anthropic`/`openai`/`google.genai`, never sees an API key, and never sees
+a provider response object. **The provider does not know about
+AgentShield. AgentShield does not know about Anthropic, OpenAI, or
+Gemini. The agent connects the two.**
 
 If a configured provider's call fails, it raises `ProviderError` — the
 agent does not silently fall back to a different provider; it fails
@@ -315,13 +316,14 @@ staging ALLOW-and-Jev-agrees), driven this time by an LLM-proposed action
 instead of a hand-written one. Its own `DeterministicDemoProvider` —
 implementing the exact same `AgentProvider` interface a real provider
 does — stands in for the LLM step when no key is set, clearly labeled and
-never pretending to be a real LLM call. When both keys are set, Anthropic
-is tried first.
+never pretending to be a real LLM call. When multiple keys are set,
+Anthropic is tried first, then OpenAI, then Gemini.
 
 ```bash
 pip install -e ".[agent-demo,jev]"
 export ANTHROPIC_API_KEY=...   # tried first; never committed, never printed
-export OPENAI_API_KEY=...      # tried if no Anthropic key; never committed, never printed
+export OPENAI_API_KEY=...      # tried next; never committed, never printed
+export GEMINI_API_KEY=...      # tried last; never committed, never printed
 export TYPESAFE_API_KEY=...    # for semantic evaluation; never committed, never printed
 python examples/real_agent_demo.py
 ```
