@@ -53,9 +53,10 @@ def _tool_matches(pattern: str, tool: str) -> bool:
 class PolicyRule(BaseModel):
     """A single policy rule.
 
-    All matching fields other than ``name`` and ``outcome`` are optional.
-    An unset field never restricts matching; only fields the rule author
-    explicitly sets are checked against the request.
+    ``name``, ``outcome``, and ``risk`` are required on every rule. All
+    matching fields (``actor``, ``server``, ``tool``, ``context``) are
+    optional; an unset matching field never restricts matching — only
+    fields the rule author explicitly sets are checked against the request.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -66,7 +67,7 @@ class PolicyRule(BaseModel):
     tool: Optional[str] = None
     context: dict[str, Any] = Field(default_factory=dict)
     outcome: Outcome
-    risk: RiskLevel = RiskLevel.MEDIUM
+    risk: RiskLevel
     reason: Optional[str] = None
 
     @field_validator("outcome", "risk", mode="before")

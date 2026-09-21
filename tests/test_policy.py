@@ -20,47 +20,51 @@ def make_request(**overrides):
 
 
 def test_exact_tool_match():
-    rule = PolicyRule(name="r1", tool="github.delete_repository", outcome="deny")
+    rule = PolicyRule(name="r1", tool="github.delete_repository", outcome="deny", risk="high")
     assert rule.matches(make_request(tool="github.delete_repository"))
     assert not rule.matches(make_request(tool="github.create_repository"))
 
 
 def test_wildcard_tool_match():
-    rule = PolicyRule(name="r1", tool="*.delete_*", outcome="deny")
+    rule = PolicyRule(name="r1", tool="*.delete_*", outcome="deny", risk="high")
     assert rule.matches(make_request(tool="github.delete_repository"))
     assert rule.matches(make_request(tool="slack.delete_message"))
     assert not rule.matches(make_request(tool="github.create_repository"))
 
 
 def test_no_tool_match():
-    rule = PolicyRule(name="r1", tool="github.delete_repository", outcome="deny")
+    rule = PolicyRule(name="r1", tool="github.delete_repository", outcome="deny", risk="high")
     assert not rule.matches(make_request(tool="github.archive_repository"))
 
 
 def test_unset_tool_matches_any_tool():
-    rule = PolicyRule(name="r1", outcome="allow")
+    rule = PolicyRule(name="r1", outcome="allow", risk="low")
     assert rule.matches(make_request(tool="anything.at_all"))
 
 
 def test_server_match():
-    rule = PolicyRule(name="r1", server="github", outcome="allow")
+    rule = PolicyRule(name="r1", server="github", outcome="allow", risk="low")
     assert rule.matches(make_request(server="github"))
     assert not rule.matches(make_request(server="slack"))
 
 
 def test_actor_match():
-    rule = PolicyRule(name="r1", actor="agent", outcome="allow")
+    rule = PolicyRule(name="r1", actor="agent", outcome="allow", risk="low")
     assert rule.matches(make_request(actor="agent"))
     assert not rule.matches(make_request(actor="human"))
 
 
 def test_context_match():
-    rule = PolicyRule(name="r1", context={"environment": "production"}, outcome="review")
+    rule = PolicyRule(
+        name="r1", context={"environment": "production"}, outcome="review", risk="medium"
+    )
     assert rule.matches(make_request(context={"environment": "production"}))
 
 
 def test_context_mismatch():
-    rule = PolicyRule(name="r1", context={"environment": "production"}, outcome="review")
+    rule = PolicyRule(
+        name="r1", context={"environment": "production"}, outcome="review", risk="medium"
+    )
     assert not rule.matches(make_request(context={"environment": "staging"}))
     assert not rule.matches(make_request(context={}))
 
@@ -70,6 +74,7 @@ def test_multiple_context_constraints_must_all_match():
         name="r1",
         context={"environment": "production", "region": "us-east"},
         outcome="review",
+        risk="medium",
     )
     assert rule.matches(
         make_request(context={"environment": "production", "region": "us-east"})
@@ -78,7 +83,9 @@ def test_multiple_context_constraints_must_all_match():
 
 
 def test_unspecified_context_fields_do_not_affect_matching():
-    rule = PolicyRule(name="r1", context={"environment": "production"}, outcome="review")
+    rule = PolicyRule(
+        name="r1", context={"environment": "production"}, outcome="review", risk="medium"
+    )
     assert rule.matches(
         make_request(context={"environment": "production", "extra": "value"})
     )
@@ -89,7 +96,11 @@ def test_unspecified_context_fields_do_not_affect_matching():
 
 def test_policy_from_dict_valid():
     policy = Policy.from_dict(
-        {"rules": [{"name": "r1", "tool": "*.read_secret", "outcome": "deny"}]}
+        {
+            "rules": [
+                {"name": "r1", "tool": "*.read_secret", "outcome": "deny", "risk": "critical"}
+            ]
+        }
     )
     assert len(policy.rules) == 1
     assert policy.rules[0].name == "r1"
@@ -102,7 +113,9 @@ def test_policy_from_dict_defaults_to_empty_rules():
 
 def test_policy_invalid_outcome_raises():
     with pytest.raises(ValidationError):
-        Policy.from_dict({"rules": [{"name": "r1", "tool": "x", "outcome": "maybe"}]})
+        Policy.from_dict(
+            {"rules": [{"name": "r1", "tool": "x", "outcome": "maybe", "risk": "low"}]}
+        )
 
 
 def test_policy_invalid_risk_raises():
@@ -114,12 +127,17 @@ def test_policy_invalid_risk_raises():
 
 def test_policy_missing_name_raises():
     with pytest.raises(ValidationError):
-        Policy.from_dict({"rules": [{"tool": "x", "outcome": "deny"}]})
+        Policy.from_dict({"rules": [{"tool": "x", "outcome": "deny", "risk": "low"}]})
 
 
 def test_policy_missing_outcome_raises():
     with pytest.raises(ValidationError):
-        Policy.from_dict({"rules": [{"name": "r1", "tool": "x"}]})
+        Policy.from_dict({"rules": [{"name": "r1", "tool": "x", "risk": "low"}]})
+
+
+def test_policy_missing_risk_raises():
+    with pytest.raises(ValidationError):
+        Policy.from_dict({"rules": [{"name": "r1", "tool": "x", "outcome": "deny"}]})
 
 
 def test_policy_malformed_rules_type_raises():

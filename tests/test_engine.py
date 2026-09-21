@@ -36,7 +36,16 @@ def test_default_allow_when_no_rule_matches():
 
 def test_default_allow_when_rules_exist_but_none_match():
     policy = Policy.from_dict(
-        {"rules": [{"name": "r1", "tool": "slack.delete_message", "outcome": "deny"}]}
+        {
+            "rules": [
+                {
+                    "name": "r1",
+                    "tool": "slack.delete_message",
+                    "outcome": "deny",
+                    "risk": "high",
+                }
+            ]
+        }
     )
     engine = AuthorizationEngine(policy)
     decision = engine.evaluate(make_request(tool="github.create_repository"))
@@ -51,8 +60,13 @@ def test_exact_beats_wildcard():
     policy = Policy.from_dict(
         {
             "rules": [
-                {"name": "wildcard-deny", "tool": "*.delete_*", "outcome": "deny"},
-                {"name": "exact-allow", "tool": "github.delete_repository", "outcome": "allow"},
+                {"name": "wildcard-deny", "tool": "*.delete_*", "outcome": "deny", "risk": "high"},
+                {
+                    "name": "exact-allow",
+                    "tool": "github.delete_repository",
+                    "outcome": "allow",
+                    "risk": "low",
+                },
             ]
         }
     )
@@ -66,8 +80,8 @@ def test_wildcard_beats_unconstrained():
     policy = Policy.from_dict(
         {
             "rules": [
-                {"name": "unconstrained-allow", "outcome": "allow"},
-                {"name": "wildcard-deny", "tool": "*.delete_*", "outcome": "deny"},
+                {"name": "unconstrained-allow", "outcome": "allow", "risk": "low"},
+                {"name": "wildcard-deny", "tool": "*.delete_*", "outcome": "deny", "risk": "high"},
             ]
         }
     )
@@ -81,12 +95,18 @@ def test_more_context_constraints_wins():
     policy = Policy.from_dict(
         {
             "rules": [
-                {"name": "broad", "tool": "merge_pull_request", "outcome": "allow"},
+                {
+                    "name": "broad",
+                    "tool": "merge_pull_request",
+                    "outcome": "allow",
+                    "risk": "low",
+                },
                 {
                     "name": "narrow",
                     "tool": "merge_pull_request",
                     "context": {"environment": "production"},
                     "outcome": "review",
+                    "risk": "high",
                 },
             ]
         }
@@ -103,12 +123,18 @@ def test_more_specific_actor_server_wins():
     policy = Policy.from_dict(
         {
             "rules": [
-                {"name": "generic", "tool": "merge_pull_request", "outcome": "allow"},
+                {
+                    "name": "generic",
+                    "tool": "merge_pull_request",
+                    "outcome": "allow",
+                    "risk": "low",
+                },
                 {
                     "name": "specific",
                     "tool": "merge_pull_request",
                     "server": "github",
                     "outcome": "deny",
+                    "risk": "high",
                 },
             ]
         }
@@ -123,8 +149,18 @@ def test_earlier_rule_wins_on_full_tie():
     policy = Policy.from_dict(
         {
             "rules": [
-                {"name": "first", "tool": "merge_pull_request", "outcome": "allow"},
-                {"name": "second", "tool": "merge_pull_request", "outcome": "deny"},
+                {
+                    "name": "first",
+                    "tool": "merge_pull_request",
+                    "outcome": "allow",
+                    "risk": "low",
+                },
+                {
+                    "name": "second",
+                    "tool": "merge_pull_request",
+                    "outcome": "deny",
+                    "risk": "high",
+                },
             ]
         }
     )
@@ -140,16 +176,16 @@ def test_precedence_is_independent_of_rule_reordering_by_content():
     policy_a = Policy.from_dict(
         {
             "rules": [
-                {"name": "first", "tool": "x", "outcome": "allow"},
-                {"name": "second", "tool": "x", "outcome": "deny"},
+                {"name": "first", "tool": "x", "outcome": "allow", "risk": "low"},
+                {"name": "second", "tool": "x", "outcome": "deny", "risk": "high"},
             ]
         }
     )
     policy_b = Policy.from_dict(
         {
             "rules": [
-                {"name": "second", "tool": "x", "outcome": "deny"},
-                {"name": "first", "tool": "x", "outcome": "allow"},
+                {"name": "second", "tool": "x", "outcome": "deny", "risk": "high"},
+                {"name": "first", "tool": "x", "outcome": "allow", "risk": "low"},
             ]
         }
     )
@@ -165,8 +201,18 @@ def test_deny_not_overridden_by_lower_precedence_allow():
     policy = Policy.from_dict(
         {
             "rules": [
-                {"name": "exact-deny", "tool": "github.delete_repository", "outcome": "deny"},
-                {"name": "wildcard-allow", "tool": "*.delete_*", "outcome": "allow"},
+                {
+                    "name": "exact-deny",
+                    "tool": "github.delete_repository",
+                    "outcome": "deny",
+                    "risk": "critical",
+                },
+                {
+                    "name": "wildcard-allow",
+                    "tool": "*.delete_*",
+                    "outcome": "allow",
+                    "risk": "low",
+                },
             ]
         }
     )
@@ -181,8 +227,18 @@ def test_allow_not_overridden_by_lower_precedence_deny():
     policy = Policy.from_dict(
         {
             "rules": [
-                {"name": "exact-allow", "tool": "github.delete_repository", "outcome": "allow"},
-                {"name": "wildcard-deny", "tool": "*.delete_*", "outcome": "deny"},
+                {
+                    "name": "exact-allow",
+                    "tool": "github.delete_repository",
+                    "outcome": "allow",
+                    "risk": "low",
+                },
+                {
+                    "name": "wildcard-deny",
+                    "tool": "*.delete_*",
+                    "outcome": "deny",
+                    "risk": "critical",
+                },
             ]
         }
     )
@@ -196,7 +252,9 @@ def test_allow_not_overridden_by_lower_precedence_deny():
 
 
 def test_engine_does_not_mutate_policy_or_request():
-    policy = Policy.from_dict({"rules": [{"name": "r1", "tool": "x", "outcome": "allow"}]})
+    policy = Policy.from_dict(
+        {"rules": [{"name": "r1", "tool": "x", "outcome": "allow", "risk": "low"}]}
+    )
     engine = AuthorizationEngine(policy)
     request = make_request(tool="x")
     engine.evaluate(request)

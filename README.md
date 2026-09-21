@@ -88,9 +88,10 @@ rules:
 ```
 
 Rules support `actor`, `server`, `tool`, and `context` as optional matching
-constraints (all must be unset or match for a rule to apply), plus `outcome`,
-`risk`, and `reason`. Tool names support `*`/`?` wildcards (e.g.
-`"*.delete_*"`); `actor` and `server` currently require exact matches.
+constraints (all must be unset or match for a rule to apply). `name`,
+`outcome`, and `risk` are required on every rule; `reason` is optional. Tool
+names support `*`/`?` wildcards (e.g. `"*.delete_*"`); `actor` and `server`
+currently require exact matches.
 
 See [`examples/policy.yaml`](examples/policy.yaml) for a fuller example, and
 `tests/test_engine.py` for the precedence rules worked out in detail.
