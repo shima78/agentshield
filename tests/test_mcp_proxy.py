@@ -17,7 +17,6 @@ from agentshield.mcp import (
     DownstreamConfig,
     DownstreamConnectionError,
     DownstreamMCPProxy,
-    DownstreamToolError,
     MCPGateway,
 )
 
@@ -130,11 +129,17 @@ async def test_review_approved_creates_file_on_real_downstream_server():
 # --- Unknown tool -----------------------------------------------------------
 
 
-async def test_unknown_tool_raises_downstream_tool_error():
+async def test_unknown_tool_is_a_transparent_error_result_not_an_exception():
+    # The fake server reports "unknown tool" as a normal MCP error result
+    # (CallToolResult.is_error=True), not a broken call. Per the downstream
+    # transparency requirement, this must pass through unmodified rather
+    # than being raised as a gateway exception.
     gateway = make_gateway()
     async with gateway:
-        with pytest.raises(DownstreamToolError):
-            await gateway.call_tool("does_not_exist", {})
+        result = await gateway.call_tool("does_not_exist", {})
+    assert result.decision.outcome.value == "allow"  # no rule matches -> default allow
+    assert result.executed is True
+    assert result.result.is_error is True
 
 
 # --- Connection failure ------------------------------------------------------

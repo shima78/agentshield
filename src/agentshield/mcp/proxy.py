@@ -18,15 +18,6 @@ from .errors import DownstreamConnectionError, DownstreamToolError
 from .models import DownstreamConfig
 
 
-def _result_text(result: CallToolResult) -> str:
-    parts = [
-        text
-        for block in (result.content or [])
-        if (text := getattr(block, "text", None))
-    ]
-    return "; ".join(parts) or "downstream tool reported an error"
-
-
 class DownstreamMCPProxy:
     """A client connection to a downstream MCP server, launched locally over stdio."""
 
@@ -85,7 +76,16 @@ class DownstreamMCPProxy:
         return result.tools
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult:
-        """Forward a tool call downstream, unmodified, and return its result."""
+        """Forward a tool call downstream and return its result, unmodified.
+
+        A downstream tool reporting failure through the normal MCP protocol
+        (``CallToolResult.is_error=True`` — e.g. "file not found") is a
+        *valid* result, not a gateway failure: it is returned as-is so the
+        caller sees exactly what the downstream server said.
+        ``DownstreamToolError`` is reserved for cases where the call itself
+        could not be carried out at all (a broken connection, a malformed
+        protocol response).
+        """
         session = self._require_session()
         try:
             result = await session.call_tool(name, arguments)
@@ -96,9 +96,5 @@ class DownstreamMCPProxy:
             raise DownstreamToolError(
                 f"Unexpected result type from downstream tool '{name}': "
                 f"{type(result).__name__}"
-            )
-        if result.is_error:
-            raise DownstreamToolError(
-                f"Downstream tool '{name}' returned an error: {_result_text(result)}"
             )
         return result
