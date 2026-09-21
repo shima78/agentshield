@@ -104,15 +104,16 @@ def test_demo_module_imports_and_exposes_expected_names():
     assert hasattr(demo, "POLICY")
 
 
-# --- provider-agnostic: the agent never imports OpenAI --------------------
+# --- provider-agnostic: the agent never imports a provider SDK directly ---
 
 
-def test_demo_module_never_imports_openai_directly():
+def test_demo_module_never_imports_a_provider_sdk_directly():
     source = MODULE_PATH.read_text(encoding="utf-8")
     for line in source.splitlines():
         stripped = line.strip()
-        assert not stripped.startswith("import openai"), line
-        assert "from openai" not in stripped, line
+        for sdk in ("openai", "anthropic"):
+            assert not stripped.startswith(f"import {sdk}"), line
+            assert f"from {sdk}" not in stripped, line
 
 
 # --- DeterministicDemoProvider implements AgentProvider correctly --------
@@ -218,14 +219,35 @@ def test_deterministic_allow_can_call_jev():
     assert evaluator.calls == 1
 
 
-# --- Provider selection: missing API key selects deterministic fallback --
+# --- Provider selection: missing keys select deterministic fallback ------
 
 
-def test_build_provider_without_api_key_selects_deterministic_fallback(monkeypatch):
+def test_build_provider_without_any_api_key_selects_deterministic_fallback(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     provider, used_real_llm = demo._build_provider()
     assert used_real_llm is False
     assert isinstance(provider, demo.DeterministicDemoProvider)
+
+
+def test_build_provider_prefers_anthropic_when_both_keys_present(monkeypatch):
+    from agentshield.providers.anthropic import AnthropicProvider
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key-for-selection-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-key-for-selection-test")
+    provider, used_real_llm = demo._build_provider()
+    assert used_real_llm is True
+    assert isinstance(provider, AnthropicProvider)
+
+
+def test_build_provider_selects_openai_when_only_openai_key_present(monkeypatch):
+    from agentshield.providers.openai import OpenAIProvider
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-key-for-selection-test")
+    provider, used_real_llm = demo._build_provider()
+    assert used_real_llm is True
+    assert isinstance(provider, OpenAIProvider)
 
 
 # --- A configured provider failing does NOT silently fall back -----------

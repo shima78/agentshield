@@ -6,9 +6,10 @@
     MCP adapter (agentshield.mcp)
     Jev provider (agentshield.jev)
     OpenAI agent provider (agentshield.providers.openai)
+    Anthropic agent provider (agentshield.providers.anthropic)
 
-Two complementary checks, run for `mcp`, `jev`/`typesafe_sdk`, and
-`openai`:
+Two complementary checks, run for `mcp`, `jev`/`typesafe_sdk`, `openai`,
+and `anthropic`:
 
 1. Static: none of the Core's own source files contain an import
    statement for the optional package (or for the optional adapter
@@ -84,6 +85,11 @@ def test_core_source_has_no_openai_import_statements():
     assert offending == [], "Core files must not import openai/providers:\n" + "\n".join(
         offending
     )
+
+
+def test_core_source_has_no_anthropic_import_statements():
+    offending = _blocked_import_prefixes_present("anthropic")
+    assert offending == [], "Core files must not import anthropic:\n" + "\n".join(offending)
 
 
 def _run_with_blocked_modules(blocked: tuple[str, ...]) -> subprocess.CompletedProcess:
@@ -170,10 +176,22 @@ def test_core_is_fully_usable_with_openai_import_blocked():
     assert result.stdout.strip() == "OK"
 
 
-def test_core_is_fully_usable_with_all_optional_sdks_blocked():
-    result = _run_with_blocked_modules(("mcp", "typesafe_sdk", "openai"))
+def test_core_is_fully_usable_with_anthropic_import_blocked():
+    """Run in a fresh subprocess with `anthropic` made unimportable;
+    agentshield must still import and evaluate a decision successfully.
+    """
+    result = _run_with_blocked_modules(("anthropic",))
     assert result.returncode == 0, (
-        f"agentshield failed to import/run with mcp, typesafe_sdk, and openai blocked.\n"
+        f"agentshield failed to import/run with anthropic blocked.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "OK"
+
+
+def test_core_is_fully_usable_with_all_optional_sdks_blocked():
+    result = _run_with_blocked_modules(("mcp", "typesafe_sdk", "openai", "anthropic"))
+    assert result.returncode == 0, (
+        f"agentshield failed to import/run with mcp, typesafe_sdk, openai, "
+        f"and anthropic blocked.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
     assert result.stdout.strip() == "OK"
