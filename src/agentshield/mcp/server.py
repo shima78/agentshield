@@ -2,9 +2,11 @@
 
 This is a thin adapter: it speaks MCP to an upstream client (initialize,
 ``tools/list``, ``tools/call``) using the official MCP SDK's low-level
-``Server``, and delegates every authorization decision to the existing
-``MCPGateway``. It contains no authorization logic of its own — this module
-must never duplicate what ``AuthorizationEngine``/``MCPGateway`` already do.
+``Server``, and delegates every decision to the existing ``MCPGateway``.
+It contains no decision logic of its own — this module must never
+duplicate what ``DecisionEngine``/``MCPGateway`` already do. MCP is one
+possible integration in front of AgentShield's decision engine, not the
+definition of AgentShield itself.
 
     MCP Client
         |
@@ -12,10 +14,10 @@ must never duplicate what ``AuthorizationEngine``/``MCPGateway`` already do.
     AgentShieldMCPServer   (this module: MCP protocol only)
         |
         v
-    MCPGateway              (agentshield.mcp.gateway: routes ALLOW/REVIEW/DENY)
+    MCPGateway              (agentshield.mcp.gateway: MCP adapter, routes ALLOW/REVIEW/DENY)
         |
         v
-    AuthorizationEngine      (agentshield.engine: the Core, MCP-agnostic)
+    DecisionEngine           (agentshield.engine: the Core, MCP-agnostic)
         |
         v
     DownstreamMCPProxy      (agentshield.mcp.proxy: the real downstream MCP server)

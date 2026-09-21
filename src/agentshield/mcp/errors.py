@@ -25,7 +25,7 @@ class DownstreamToolError(GatewayError):
 
 
 class AuthorizationEvaluationError(GatewayError):
-    """Raised when the ``AuthorizationEngine`` itself fails to produce a decision.
+    """Raised when the ``DecisionEngine`` itself fails to produce a decision.
 
     The gateway fails closed: a tool call is never forwarded downstream when
     this happens.

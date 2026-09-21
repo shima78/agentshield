@@ -19,7 +19,7 @@ from .errors import GatewayConfigError
 class ServerConfig(BaseModel):
     """Identifies the downstream MCP server for policy purposes.
 
-    ``name`` is used verbatim as ``AuthorizationRequest.server``, so policy
+    ``name`` is used verbatim as ``DecisionRequest.server``, so policy
     rules can match on it (e.g. ``server: github``).
     """
 

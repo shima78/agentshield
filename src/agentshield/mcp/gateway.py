@@ -1,10 +1,14 @@
-"""The AgentShield MCP Gateway.
+"""The AgentShield MCP Gateway — an *adapter*, not the center of the
+architecture.
 
-MCP is the transport/tool interface. AgentShield is the authorization
-boundary. The gateway sits between an MCP client (an agent) and a
-downstream MCP server: every tool call is evaluated by the Core's
-``AuthorizationEngine`` before anything is forwarded downstream, and a
-deterministic DENY can never be overridden here.
+AgentShield's primary interface is the Core's generic decision engine
+(``shield.evaluate(request)``); this module is one integration built on
+top of it, for the specific case where you want AgentShield placed
+between an MCP client (an agent) and a downstream MCP server. Every tool
+call is evaluated by the Core's ``DecisionEngine`` before anything is
+forwarded downstream, and a deterministic DENY can never be overridden
+here. This module maps MCP's vocabulary (a "tool" call) onto the Core's
+generic vocabulary (an "action") — the Core itself has no notion of MCP.
 
 This module has no knowledge of any specific tool, provider, or MCP server
 implementation — it only depends on the Core (``agentshield.decision``,
@@ -21,8 +25,8 @@ from mcp.types import CallToolResult, Tool
 
 from ..audit import AuditLog
 from ..decision import Decision, Outcome
-from ..engine import AuthorizationEngine
-from ..policy import AuthorizationRequest, Policy
+from ..engine import DecisionEngine
+from ..policy import DecisionRequest, Policy
 from .approval import ApprovalProvider, ApprovalResult
 from .errors import (
     ApprovalProviderError,
@@ -55,7 +59,7 @@ class MCPGateway:
     def __init__(
         self,
         *,
-        engine: AuthorizationEngine,
+        engine: DecisionEngine,
         downstream: DownstreamMCPProxy,
         server_name: str,
         actor: str = "agent",
@@ -81,7 +85,7 @@ class MCPGateway:
     ) -> "MCPGateway":
         """Build a gateway from a ``GatewayConfig`` (policy, downstream, context)."""
         policy = Policy.from_yaml(config.policy.path)
-        engine = AuthorizationEngine(policy)
+        engine = DecisionEngine(policy)
         downstream = DownstreamMCPProxy(config.downstream)
         return cls(
             engine=engine,
@@ -114,11 +118,13 @@ class MCPGateway:
         """
         return await self.downstream.list_tools()
 
-    def _build_request(self, tool: str, arguments: dict[str, Any]) -> AuthorizationRequest:
-        return AuthorizationRequest(
+    def _build_request(self, tool: str, arguments: dict[str, Any]) -> DecisionRequest:
+        # This is the MCP adapter's one job: translate its own vocabulary
+        # (a "tool" call) into the Core's generic vocabulary (an "action").
+        return DecisionRequest(
             actor=self.actor,
             server=self.server_name,
-            tool=tool,
+            action=tool,
             arguments=dict(arguments),
             context=dict(self.context),
         )
@@ -126,7 +132,7 @@ class MCPGateway:
     async def call_tool(self, tool: str, arguments: dict[str, Any]) -> GatewayCallResult:
         """Authorize, then (if permitted) forward, a single tool call.
 
-        Every call is evaluated by the ``AuthorizationEngine`` first. ALLOW
+        Every call is evaluated by the ``DecisionEngine`` first. ALLOW
         forwards the call unmodified; DENY never reaches the downstream
         server; REVIEW is resolved through the configured
         ``ApprovalProvider`` before anything is forwarded.
@@ -167,11 +173,11 @@ class MCPGateway:
         return GatewayCallResult(decision=decision, executed=True, result=result)
 
     async def _get_approval(
-        self, request: AuthorizationRequest, decision: Decision
+        self, request: DecisionRequest, decision: Decision
     ) -> ApprovalResult:
         if self.approval_provider is None:
             raise ApprovalProviderRequiredError(
-                f"Tool '{request.tool}' requires REVIEW approval but no "
+                f"Tool '{request.action}' requires REVIEW approval but no "
                 f"ApprovalProvider is configured."
             )
         try:

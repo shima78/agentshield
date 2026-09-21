@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Union
 
 from ..decision import Decision
-from ..policy import AuthorizationRequest
+from ..policy import DecisionRequest
 
 
 @dataclass(frozen=True)
@@ -32,14 +32,14 @@ class ApprovalProvider(abc.ABC):
 
     @abc.abstractmethod
     async def request_approval(
-        self, request: AuthorizationRequest, decision: Decision
+        self, request: DecisionRequest, decision: Decision
     ) -> ApprovalResult:
         """Ask whatever backs this provider whether ``request`` should proceed."""
         raise NotImplementedError
 
 
 ApprovalCallback = Callable[
-    [AuthorizationRequest, Decision], Union[ApprovalResult, Awaitable[ApprovalResult]]
+    [DecisionRequest, Decision], Union[ApprovalResult, Awaitable[ApprovalResult]]
 ]
 
 
@@ -55,7 +55,7 @@ class CallbackApprovalProvider(ApprovalProvider):
         self._callback = callback
 
     async def request_approval(
-        self, request: AuthorizationRequest, decision: Decision
+        self, request: DecisionRequest, decision: Decision
     ) -> ApprovalResult:
         result = self._callback(request, decision)
         if inspect.isawaitable(result):
@@ -67,10 +67,10 @@ class ConsoleApprovalProvider(ApprovalProvider):
     """Prompts a human at the terminal. Intended for local demos only."""
 
     async def request_approval(
-        self, request: AuthorizationRequest, decision: Decision
+        self, request: DecisionRequest, decision: Decision
     ) -> ApprovalResult:
         print(
-            f"\n[AgentShield] REVIEW required for tool '{request.tool}' "
+            f"\n[AgentShield] REVIEW required for tool '{request.action}' "
             f"on server '{request.server}'"
         )
         print(f"  risk={decision.risk.value} reason={decision.reason}")

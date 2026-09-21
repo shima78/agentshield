@@ -23,7 +23,7 @@ EXAMPLES_DIR = pathlib.Path(__file__).parent
 
 
 def _auto_approve(request, decision) -> ApprovalResult:
-    print(f"  [approval] auto-approving REVIEW for '{request.tool}' (demo only)")
+    print(f"  [approval] auto-approving REVIEW for '{request.action}' (demo only)")
     return ApprovalResult(approved=True, approver="demo-auto-approver")
 
 
@@ -64,7 +64,7 @@ async def main() -> None:
     print(f"\nAudit events recorded: {len(gateway.audit_log.events)}")
     for event in gateway.audit_log.events:
         print(
-            f"  [{event.timestamp.isoformat()}] tool={event.request.tool!r} "
+            f"  [{event.timestamp.isoformat()}] action={event.request.action!r} "
             f"outcome={event.decision.outcome.value} rule={event.decision.rule!r} "
             f"approval_required={event.approval_required} "
             f"approval_outcome={event.approval_outcome!r}"
