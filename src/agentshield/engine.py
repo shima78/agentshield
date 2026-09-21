@@ -25,10 +25,12 @@ evaluator such as ``agentshield.jev`` — may override a DENY. See the
 README for the full rationale.
 
 Optional semantic evaluation: if a ``SemanticEvaluator`` is configured, it
-is consulted for every non-DENY decision and can escalate ALLOW toward
+is consulted only for an ALLOW decision, and can escalate it toward
 REVIEW when it judges the action semantically questionable — it can never
-produce DENY, and never touches an outcome that is already DENY or REVIEW.
-Deterministic policy remains authoritative.
+produce DENY. DENY and REVIEW are both already final by the time
+deterministic policy has spoken: a DENY must never be reconsidered, and a
+REVIEW has already asked for human attention, so there is nothing further
+for semantic evaluation to add. Deterministic policy remains authoritative.
 """
 
 from __future__ import annotations
@@ -87,7 +89,7 @@ class DecisionEngine:
             )
             matched_rule = best_rule
 
-        if self.semantic_evaluator is None or decision.outcome == Outcome.DENY:
+        if self.semantic_evaluator is None or decision.outcome != Outcome.ALLOW:
             return decision
         return self._apply_semantic_assessment(decision, request, matched_rule)
 
@@ -95,10 +97,11 @@ class DecisionEngine:
         self, decision: Decision, request: DecisionRequest, rule: Optional[PolicyRule]
     ) -> Decision:
         assert self.semantic_evaluator is not None
+        assert decision.outcome == Outcome.ALLOW
         assessment = self.semantic_evaluator.assess(request, rule)
 
         outcome = decision.outcome
-        if outcome == Outcome.ALLOW and assessment.verdict != SemanticVerdict.GOOD:
+        if assessment.verdict != SemanticVerdict.GOOD:
             # Additive only: semantic judgment can raise caution, never grant it.
             outcome = Outcome.REVIEW
 

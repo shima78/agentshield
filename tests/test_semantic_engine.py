@@ -5,6 +5,13 @@ These use an in-repo fake SemanticEvaluator (implementing the Core's own
 they have no dependency on ``typesafe_sdk`` and always run. Jev-specific
 behavior (building the request, parsing a real ChoiceAnswer) is covered
 separately in test_jev_evaluator.py.
+
+Semantic evaluation is only ever consulted for an ALLOW decision:
+
+    DENY   -> final, Jev never consulted
+    REVIEW -> final, Jev never consulted (deterministic policy already
+              asked for human attention; there is nothing more to add)
+    ALLOW  -> Jev consulted, may escalate to REVIEW, never to DENY
 """
 
 from dataclasses import dataclass
@@ -92,6 +99,21 @@ def test_deny_is_never_sent_to_semantic_evaluator_or_overridden():
     assert evaluator.calls == []  # never even consulted
 
 
+# --- deterministic REVIEW is also final: Jev is not consulted -----------
+
+
+def test_review_is_never_sent_to_semantic_evaluator():
+    evaluator = FakeSemanticEvaluator(verdict=SemanticVerdict.BAD)
+    engine = DecisionEngine(POLICY, semantic_evaluator=evaluator)
+    decision = engine.evaluate(make_request(action="merge_pull_request"))
+
+    assert decision.outcome == Outcome.REVIEW
+    assert decision.rule == "review-merge"
+    assert evaluator.calls == []  # never even consulted
+    assert "Semantic assessment" not in decision.reason
+    assert decision.confidence == 1.0  # untouched: no semantic evaluation ran
+
+
 # --- 3: semantic evaluation is requested for an applicable action ------
 
 
@@ -105,13 +127,6 @@ def test_semantic_evaluator_is_consulted_for_allow_outcome():
     called_request, called_rule = evaluator.calls[0]
     assert called_request is request
     assert called_rule.name == "allow-echo"
-
-
-def test_semantic_evaluator_is_consulted_for_review_outcome():
-    evaluator = FakeSemanticEvaluator(verdict=SemanticVerdict.GOOD)
-    engine = DecisionEngine(POLICY, semantic_evaluator=evaluator)
-    engine.evaluate(make_request(action="merge_pull_request"))
-    assert len(evaluator.calls) == 1
 
 
 # --- 4: structured semantic result is converted into a Decision --------
@@ -159,27 +174,19 @@ def test_semantic_reason_is_appended_when_provided():
     assert "Friday evening production deploy is risky." in decision.reason
 
 
-def test_bad_verdict_on_already_review_outcome_stays_review():
-    evaluator = FakeSemanticEvaluator(verdict=SemanticVerdict.BAD)
-    engine = DecisionEngine(POLICY, semantic_evaluator=evaluator)
-    decision = engine.evaluate(make_request(action="merge_pull_request"))
-    assert decision.outcome == Outcome.REVIEW
-    assert decision.rule == "review-merge"
-
-
 # --- 5: applicable policy is included in the semantic evaluation input -
 
 
 def test_matched_rule_is_passed_to_semantic_evaluator():
     evaluator = FakeSemanticEvaluator(verdict=SemanticVerdict.GOOD)
     engine = DecisionEngine(POLICY, semantic_evaluator=evaluator)
-    engine.evaluate(make_request(action="merge_pull_request"))
+    engine.evaluate(make_request(action="echo"))
 
     _, rule = evaluator.calls[0]
     assert isinstance(rule, PolicyRule)
-    assert rule.name == "review-merge"
-    assert rule.outcome == Outcome.REVIEW
-    assert rule.risk == RiskLevel.HIGH
+    assert rule.name == "allow-echo"
+    assert rule.outcome == Outcome.ALLOW
+    assert rule.risk == RiskLevel.LOW
 
 
 def test_no_matching_rule_passes_none_to_semantic_evaluator():
