@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install project
+        run: pip install -e ".[dev]"
+
+      # Real GitHub integration tests (tests/test_github_integration.py)
+      # need Docker and a personal GitHub token; they are not run here.
+      # They skip themselves automatically even without this filter.
+      - name: Run tests
+        run: pytest -m "not integration"
