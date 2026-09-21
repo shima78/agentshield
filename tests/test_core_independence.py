@@ -1,19 +1,20 @@
-"""Architectural guard: the Core must not depend on MCP.
+"""Architectural guard: the Core must not depend on any optional adapter/provider.
 
     Core
       ^
       |
     MCP adapter (agentshield.mcp)
+    Jev provider (agentshield.jev)
 
-Two complementary checks:
+Two complementary checks, run for both `mcp` and `jev`/`typesafe_sdk`:
 
-1. Static: none of the Core's own source files contain an ``import mcp`` /
-   ``from mcp`` statement.
+1. Static: none of the Core's own source files contain an import
+   statement for the optional package.
 2. Dynamic: a fresh Python process can import and fully use ``agentshield``
-   (build a policy, evaluate a decision) even when the ``mcp`` package is
+   (build a policy, evaluate a decision) even when the optional package is
    made entirely unimportable. This is the authoritative check — it proves
-   the Core has no transitive or deferred dependency on MCP either, not
-   just no top-level import statement.
+   the Core has no transitive or deferred dependency either, not just no
+   top-level import statement.
 """
 
 import pathlib
@@ -23,8 +24,8 @@ import textwrap
 
 CORE_DIR = pathlib.Path(__file__).resolve().parents[1] / "src" / "agentshield"
 
-# Files that belong to the Core, as opposed to the optional MCP adapter
-# (src/agentshield/mcp/).
+# Files that belong to the Core, as opposed to the optional adapters
+# (src/agentshield/mcp/, src/agentshield/jev.py).
 CORE_FILES = [
     CORE_DIR / "__init__.py",
     CORE_DIR / "decision.py",
@@ -32,6 +33,7 @@ CORE_FILES = [
     CORE_DIR / "engine.py",
     CORE_DIR / "risk.py",
     CORE_DIR / "audit.py",
+    CORE_DIR / "semantic.py",
 ]
 
 
@@ -42,32 +44,49 @@ def test_core_source_files_exist():
         assert path.is_file(), f"expected Core file not found: {path}"
 
 
-def test_core_source_has_no_mcp_import_statements():
+def _blocked_import_prefixes_present(module_prefix: str) -> list[str]:
     offending: list[str] = []
     for path in CORE_FILES:
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             stripped = line.strip()
-            if stripped.startswith("import mcp") or stripped.startswith("from mcp"):
+            if stripped.startswith(f"import {module_prefix}") or stripped.startswith(
+                f"from {module_prefix}"
+            ):
                 offending.append(f"{path.name}:{lineno}: {stripped}")
-    assert offending == [], f"Core files must not import mcp:\n" + "\n".join(offending)
+    return offending
 
 
-def test_core_is_fully_usable_with_mcp_import_blocked():
-    """Run in a fresh subprocess with `mcp` made unimportable; agentshield
-    must still import and evaluate a decision successfully.
-    """
+def test_core_source_has_no_mcp_import_statements():
+    offending = _blocked_import_prefixes_present("mcp")
+    assert offending == [], "Core files must not import mcp:\n" + "\n".join(offending)
+
+
+def test_core_source_has_no_jev_import_statements():
+    offending = _blocked_import_prefixes_present(
+        "typesafe_sdk"
+    ) + _blocked_import_prefixes_present("agentshield.jev")
+    assert offending == [], "Core files must not import typesafe_sdk/jev:\n" + "\n".join(
+        offending
+    )
+
+
+def _run_with_blocked_modules(blocked: tuple[str, ...]) -> subprocess.CompletedProcess:
     script = textwrap.dedent(
-        """
+        f"""
         import sys
 
-        class _BlockMCP:
+        BLOCKED = {blocked!r}
+
+        class _BlockModules:
             def find_module(self, name, path=None):
-                return self if name == "mcp" or name.startswith("mcp.") else None
+                return self if any(
+                    name == prefix or name.startswith(prefix + ".") for prefix in BLOCKED
+                ) else None
 
             def load_module(self, name):
-                raise ImportError(f"mcp is intentionally blocked for this test: {name}")
+                raise ImportError(f"intentionally blocked for this test: {{name}}")
 
-        sys.meta_path.insert(0, _BlockMCP())
+        sys.meta_path.insert(0, _BlockModules())
 
         import agentshield
 
@@ -78,14 +97,45 @@ def test_core_is_fully_usable_with_mcp_import_blocked():
         print("OK")
         """
     )
-    result = subprocess.run(
+    return subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         timeout=30,
     )
+
+
+def test_core_is_fully_usable_with_mcp_import_blocked():
+    """Run in a fresh subprocess with `mcp` made unimportable; agentshield
+    must still import and evaluate a decision successfully.
+    """
+    result = _run_with_blocked_modules(("mcp",))
     assert result.returncode == 0, (
         f"agentshield failed to import/run with mcp blocked.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "OK"
+
+
+def test_core_is_fully_usable_with_jev_import_blocked():
+    """Run in a fresh subprocess with `typesafe_sdk` made unimportable;
+    agentshield must still import and evaluate a decision successfully.
+    This is the strongest form of "Jev disabled/unavailable -> Core still
+    works": it proves the Core has zero dependency on the Jev SDK, even
+    when no SemanticEvaluator is configured.
+    """
+    result = _run_with_blocked_modules(("typesafe_sdk",))
+    assert result.returncode == 0, (
+        f"agentshield failed to import/run with typesafe_sdk blocked.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "OK"
+
+
+def test_core_is_fully_usable_with_both_mcp_and_jev_blocked():
+    result = _run_with_blocked_modules(("mcp", "typesafe_sdk"))
+    assert result.returncode == 0, (
+        f"agentshield failed to import/run with mcp and typesafe_sdk blocked.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
     assert result.stdout.strip() == "OK"
