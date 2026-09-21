@@ -18,6 +18,13 @@ authorization layer. The old names remain importable as aliases; the
 request's tool/action field was renamed from ``tool`` to ``action``
 (a breaking change for any code constructing the request with a ``tool=``
 keyword — see the README).
+
+``DecisionEngine`` can optionally be given a ``SemanticEvaluator`` to add
+semantic judgment (is this action a *sensible* one, not just a permitted
+one?) on top of deterministic policy — see ``agentshield.jev`` for a
+provider backed by TypeSafe's Jev model. This is entirely optional: the
+Core has no dependency on Jev (or any other semantic provider) either, and
+``agentshield.jev`` is never imported here.
 """
 
 from .audit import AuditEvent, AuditLog
@@ -25,6 +32,7 @@ from .decision import Decision, Outcome
 from .engine import DecisionEngine
 from .policy import DecisionRequest, Policy, PolicyError, PolicyRule
 from .risk import RiskLevel
+from .semantic import SemanticAssessment, SemanticEvaluator, SemanticVerdict
 
 # Deprecated aliases, kept for a soft transition. Prefer DecisionEngine /
 # DecisionRequest in new code.
@@ -42,6 +50,9 @@ __all__ = [
     "PolicyError",
     "PolicyRule",
     "RiskLevel",
+    "SemanticAssessment",
+    "SemanticEvaluator",
+    "SemanticVerdict",
     # Deprecated aliases
     "AuthorizationEngine",
     "AuthorizationRequest",

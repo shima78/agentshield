@@ -20,15 +20,25 @@ policy's rule list — never on dict iteration order — so it is fully
 deterministic.
 
 Safety note: precedence is resolved purely among policy rules. Once the
-Core selects a decision, no other layer (including future providers such as
-Jev) may override a DENY. See the README for the full rationale.
+Core selects a decision, no other layer — including an optional semantic
+evaluator such as ``agentshield.jev`` — may override a DENY. See the
+README for the full rationale.
+
+Optional semantic evaluation: if a ``SemanticEvaluator`` is configured, it
+is consulted for every non-DENY decision and can escalate ALLOW toward
+REVIEW when it judges the action semantically questionable — it can never
+produce DENY, and never touches an outcome that is already DENY or REVIEW.
+Deterministic policy remains authoritative.
 """
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .decision import Decision, Outcome
 from .policy import DecisionRequest, Policy, PolicyRule
 from .risk import RiskLevel
+from .semantic import SemanticEvaluator, SemanticVerdict
 
 DEFAULT_ALLOW_REASON = "No policy matched; action allowed by default."
 
@@ -36,8 +46,11 @@ DEFAULT_ALLOW_REASON = "No policy matched; action allowed by default."
 class DecisionEngine:
     """Evaluates decision requests against a policy."""
 
-    def __init__(self, policy: Policy) -> None:
+    def __init__(
+        self, policy: Policy, *, semantic_evaluator: Optional[SemanticEvaluator] = None
+    ) -> None:
         self._policy = policy
+        self.semantic_evaluator = semantic_evaluator
 
     @property
     def policy(self) -> Policy:
@@ -52,25 +65,54 @@ class DecisionEngine:
         ]
 
         if not matches:
-            return Decision.from_outcome(
+            decision = Decision.from_outcome(
                 outcome=Outcome.ALLOW,
                 risk=RiskLevel.LOW,
                 reason=DEFAULT_ALLOW_REASON,
                 confidence=1.0,
             )
+            matched_rule = None
+        else:
+            _, best_rule = max(
+                matches,
+                key=lambda pair: self._precedence_key(pair[1], request, pair[0]),
+            )
+            reason = best_rule.reason or f"Matched policy rule '{best_rule.name}'."
+            decision = Decision.from_outcome(
+                outcome=best_rule.outcome,
+                risk=best_rule.risk,
+                reason=reason,
+                rule=best_rule.name,
+                confidence=1.0,
+            )
+            matched_rule = best_rule
 
-        _, best_rule = max(
-            matches,
-            key=lambda pair: self._precedence_key(pair[1], request, pair[0]),
-        )
+        if self.semantic_evaluator is None or decision.outcome == Outcome.DENY:
+            return decision
+        return self._apply_semantic_assessment(decision, request, matched_rule)
 
-        reason = best_rule.reason or f"Matched policy rule '{best_rule.name}'."
+    def _apply_semantic_assessment(
+        self, decision: Decision, request: DecisionRequest, rule: Optional[PolicyRule]
+    ) -> Decision:
+        assert self.semantic_evaluator is not None
+        assessment = self.semantic_evaluator.assess(request, rule)
+
+        outcome = decision.outcome
+        if outcome == Outcome.ALLOW and assessment.verdict != SemanticVerdict.GOOD:
+            # Additive only: semantic judgment can raise caution, never grant it.
+            outcome = Outcome.REVIEW
+
+        if assessment.reason:
+            reason = f"{decision.reason} Semantic assessment ({assessment.verdict.value}): {assessment.reason}"
+        else:
+            reason = f"{decision.reason} Semantic assessment: {assessment.verdict.value}."
+
         return Decision.from_outcome(
-            outcome=best_rule.outcome,
-            risk=best_rule.risk,
+            outcome=outcome,
+            risk=decision.risk,
             reason=reason,
-            rule=best_rule.name,
-            confidence=1.0,
+            rule=decision.rule,
+            confidence=assessment.confidence,
         )
 
     @staticmethod
