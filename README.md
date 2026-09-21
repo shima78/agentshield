@@ -238,15 +238,75 @@ request always produce the same decision.
 
 ### Deterministic DENY is authoritative
 
-**A deterministic `DENY` must never be overridden by another layer.** Future
-providers (for example, an LLM-based reasoning layer such as "Jev") may add
-context, explanations, or additional review — but they cannot flip a
-policy-level `DENY` into an `ALLOW`. This holds both in the Core (the
-engine's precedence rules operate purely over policy rules, and nothing
-exposes a way to override a returned `Decision`) and in the MCP Gateway (a
-DENY is never sent to an `ApprovalProvider` and never reaches the downstream
-server). Any future integration that wants to add a "second opinion" must be
-additive (e.g. escalating `REVIEW` to `DENY`), never permissive.
+**A deterministic `DENY` must never be overridden by another layer.** An
+optional semantic evaluator (see "Semantic evaluation" below) may add
+context or additional review — but it cannot flip a policy-level `DENY`
+into an `ALLOW`, and `DecisionEngine` never even consults it once policy
+has already said DENY. This holds both in the Core (the engine's
+precedence rules operate purely over policy rules, and nothing exposes a
+way to override a returned `Decision`) and in the MCP Gateway (a DENY is
+never sent to an `ApprovalProvider` and never reaches the downstream
+server). Any layer that wants to add a "second opinion" must be additive
+(e.g. escalating `ALLOW` to `REVIEW`), never permissive.
+
+## Semantic evaluation (optional, via Jev)
+
+Deterministic policy answers "is this technically permitted?" `DecisionEngine`
+can optionally also ask a **semantic** question: "given the action, its
+arguments, the current context, and the applicable policy, is this
+actually a *sensible* decision?" — a technically-permitted action can
+still be a bad idea (a database migration proposed for Friday evening in
+production, say).
+
+```text
+Action + Context + Applicable Policy
+                ↓
+              Jev
+                ↓
+      semantic assessment
+                ↓
+          AgentShield
+```
+
+`agentshield.jev.JevSemanticEvaluator` implements this using
+[Jev](https://docs.typesafe.ai), TypeSafe's "System One" model, via the
+official `typesafe-sdk` package (optional dependency: `pip install -e ".[jev]"`,
+`export TYPESAFE_API_KEY=...`). It asks a single structured `Choice`
+question (`good` / `review` / `bad`) with only the *relevant* slice of
+policy for that one request as context — never the whole policy file.
+
+```python
+from agentshield import DecisionEngine, DecisionRequest, Policy
+from agentshield.jev import JevSemanticEvaluator
+
+shield = DecisionEngine(Policy.from_dict({"rules": []}), semantic_evaluator=JevSemanticEvaluator())
+
+decision = shield.evaluate(
+    DecisionRequest(
+        action="deploy",
+        actor="release-agent",
+        context={
+            "environment": "production",
+            "time": "friday_evening",
+            "database_migration": True,
+        },
+    )
+)
+```
+
+**Deterministic policy remains authoritative.** `DecisionEngine` never
+consults the semantic evaluator for a request that deterministic policy
+already denies. When it is consulted, its verdict can only ever escalate
+an `ALLOW` toward `REVIEW` — it can never produce `DENY`, and never
+downgrades an existing `REVIEW`. `Decision.confidence` is set from Jev's
+own confidence score when a semantic evaluation ran (deterministic-only
+decisions keep `confidence = 1.0`, as before).
+
+This is entirely optional: `agentshield.jev` is never imported by the Core
+or by `DecisionEngine` itself (see `tests/test_core_independence.py`), and
+Jev is not an enforcement mechanism or a security guarantee — it is one
+more input into a decision the agent/application is still responsible for
+acting on. See [`examples/jev_example.py`](examples/jev_example.py).
 
 ## MCP adapter
 
@@ -577,14 +637,18 @@ pytest -m integration
 * **Real MCP integration**: the same MCP adapter proven against a real MCP
   ecosystem server (GitHub MCP) rather than only the bundled fake one, with
   an opt-in, credential-gated integration test suite.
+* **Optional semantic evaluation**: `DecisionEngine(..., semantic_evaluator=...)`
+  and `agentshield.jev.JevSemanticEvaluator`, a single `good`/`review`/`bad`
+  judgment on top of deterministic policy, backed by the real Jev API. The
+  Core has no dependency on it either.
 
 Deliberately **not** implemented yet: automatic agent interception, a
 general CLI, an HTTP authorization service or remote AgentShield service, a
-database, a web dashboard, authentication infrastructure, an LLM-based
-reasoning provider ("Jev"), semantic/LLM-based policy evaluation, or
-configurable approval backends (Slack, webhook, web UI, secret management).
-A full enforcement/proxy redesign beyond the existing MCP adapter is future
-work — see the scope note at the top of this README.
+database, a web dashboard, authentication infrastructure, multiple semantic
+questions/evaluators/models, a semantic-orchestration or confidence-threshold
+framework, or configurable approval backends (Slack, webhook, web UI, secret
+management). A full enforcement/proxy redesign beyond the existing MCP
+adapter is future work — see the scope note at the top of this README.
 
 ## Roadmap
 
@@ -592,8 +656,8 @@ work — see the scope note at the top of this README.
 Core decision engine (current)
 → MCP adapter — library + real server (this repo)
 → Real MCP integration — GitHub (this repo)
+→ Optional semantic evaluation — Jev (this repo)
 → Python SDK packaging
-→ Jev provider
 → stronger enforcement integrations
 → TypeScript SDK
 → further integrations
@@ -604,9 +668,9 @@ Core decision engine (current)
 Requires **Python 3.11+** (`requires-python = ">=3.11"`).
 
 ```bash
-pip install -e ".[dev]"       # includes the optional mcp extra
+pip install -e ".[dev]"       # includes the optional mcp and jev extras
 pytest                        # offline, credential-free
-pytest -m integration         # optional: real GitHub MCP integration tests
+pytest -m integration         # optional: real GitHub MCP + real Jev API tests
 ```
 
 ## Status
