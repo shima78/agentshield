@@ -58,3 +58,20 @@ def test_events_property_returns_a_copy():
     events = audit.events
     events.append("tampered")
     assert len(audit.events) == 1
+
+
+def test_approval_fields_default_to_no_approval_involved():
+    audit = AuditLog()
+    event = audit.record(make_request(), Decision.from_outcome(Outcome.ALLOW, RiskLevel.LOW, "ok"))
+    assert event.approval_required is False
+    assert event.approval_outcome is None
+
+
+def test_approval_fields_can_be_recorded():
+    audit = AuditLog()
+    decision = Decision.from_outcome(Outcome.REVIEW, RiskLevel.HIGH, "needs review")
+    event = audit.record(
+        make_request(), decision, approval_required=True, approval_outcome="approved"
+    )
+    assert event.approval_required is True
+    assert event.approval_outcome == "approved"
