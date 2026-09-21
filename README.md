@@ -431,6 +431,81 @@ Both run `MCP Client -> AgentShield -> Fake MCP Server` end to end and
 demonstrate ALLOW, REVIEW, and DENY plus (for `run_demo.py`) the resulting
 audit trail.
 
+## Real MCP Integration
+
+Phases 1–2.5 above are proven against a small fake local MCP server.
+[`examples/github/`](examples/github/) proves the exact same, unmodified
+gateway against a **real** MCP ecosystem server:
+[github/github-mcp-server](https://github.com/github/github-mcp-server),
+GitHub's own official MCP server.
+
+```text
+Claude
+  ↓
+AgentShield
+  ↓
+GitHub MCP
+  ↓
+GitHub
+```
+
+Why this matters: AgentShield can sit in front of an **existing, unmodified
+MCP server** — this isn't limited to a purpose-built demo server. The same
+`MCPGateway`/`AgentShieldMCPServer` that talk to `examples/mcp_server.py`
+talk to real GitHub MCP with zero code changes; only the config and policy
+differ. Nothing GitHub-specific was added to the Core, `MCPGateway`, or
+`AgentShieldMCPServer` — GitHub-specific detail lives only in
+[`examples/github/`](examples/github/) and
+[`tests/test_github_integration.py`](tests/test_github_integration.py). The
+same gateway works unchanged in front of ComfyUI MCP, AWS MCP, or any other
+MCP server.
+
+**Security model:** AgentShield is positioned between the agent and the
+tool layer. It does not replace MCP, and it does not modify the downstream
+MCP server — it evaluates the action *before* execution:
+
+```text
+Agent
+  ↓
+AgentShield
+  ↓
+Policy decision
+  ↓
+Tool execution
+```
+
+So `DENY` = the tool is never executed, whether that tool is a local fake
+server or the real GitHub API.
+
+See **[`examples/github/README.md`](examples/github/README.md)** for full,
+step-by-step setup: prerequisites, the Python 3.11+ requirement,
+installation, GitHub MCP setup (Docker), the required
+`GITHUB_PERSONAL_ACCESS_TOKEN` environment variable (never committed —
+referenced from config as `${GITHUB_PERSONAL_ACCESS_TOKEN}` and resolved
+only at connect time), the example policy and gateway config, an MCP client
+configuration example, and the local-test vs. integration-test commands.
+
+Quick summary:
+
+```bash
+pip install -e ".[mcp]"
+export GITHUB_PERSONAL_ACCESS_TOKEN=your_token_here   # never committed
+python -m agentshield.mcp.server --config examples/github/gateway.yaml
+```
+
+The normal test suite stays completely offline and credential-free:
+
+```bash
+pytest                      # integration tests skip themselves automatically
+pytest -m "not integration" # same, explicit
+```
+
+Real integration tests (require Docker + a token):
+
+```bash
+pytest -m integration
+```
+
 ## What's implemented
 
 * **Phase 1 — Core**: typed decision/request/policy models, deterministic
@@ -445,11 +520,14 @@ audit trail.
   protocol adapter with no authorization logic of its own), launchable via
   `python -m agentshield.mcp.server --config ...` and usable directly from
   Claude Desktop, Cursor, or any other MCP-compatible client.
+* **Phase 3A — real MCP integration**: the same gateway proven against a
+  real MCP ecosystem server (GitHub MCP) rather than only the bundled fake
+  one, with an opt-in, credential-gated integration test suite.
 
 Deliberately **not** implemented yet: a Python SDK package, a general CLI, an
 HTTP server, a database, a web dashboard, authentication, an LLM-based
-reasoning provider ("Jev"), or any integration with a specific tool
-ecosystem (GitHub, AWS, ComfyUI, ...).
+reasoning provider ("Jev"), or configurable approval backends (Slack,
+webhook, web UI).
 
 ## Roadmap
 
@@ -457,6 +535,7 @@ ecosystem (GitHub, AWS, ComfyUI, ...).
 Core (Phase 1)
 → MCP Gateway library (Phase 2, this repo)
 → Real MCP server (Phase 2.5, this repo)
+→ Real MCP integration — GitHub (Phase 3A, this repo)
 → Python SDK
 → Jev provider
 → TypeScript SDK
@@ -465,9 +544,12 @@ Core (Phase 1)
 
 ## Installing and running tests
 
+Requires **Python 3.11+** (`requires-python = ">=3.11"`).
+
 ```bash
-pip install -e ".[dev]"   # includes the optional mcp extra
-pytest
+pip install -e ".[dev]"       # includes the optional mcp extra
+pytest                        # offline, credential-free
+pytest -m integration         # optional: real GitHub MCP integration tests
 ```
 
 ## Status
