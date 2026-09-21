@@ -9,6 +9,10 @@ front of it.
 Requires the optional ``mcp`` dependency: ``pip install -e ".[mcp]"``.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .approval import (
     ApprovalProvider,
     ApprovalResult,
@@ -28,9 +32,18 @@ from .gateway import GatewayCallResult, MCPGateway
 from .models import DownstreamConfig, GatewayConfig, PolicyConfig, ServerConfig
 from .proxy import DownstreamMCPProxy
 
+# AgentShieldMCPServer is exposed lazily (PEP 562, via __getattr__ below)
+# rather than imported here: `python -m agentshield.mcp.server` imports
+# this package first, then re-executes server.py as __main__. Eagerly
+# importing .server above would register it in sys.modules under its
+# normal name too, and Python warns about then running it as __main__.
+if TYPE_CHECKING:  # pragma: no cover
+    from .server import AgentShieldMCPServer
+
 __all__ = [
     "MCPGateway",
     "GatewayCallResult",
+    "AgentShieldMCPServer",
     "DownstreamMCPProxy",
     "DownstreamConfig",
     "GatewayConfig",
@@ -48,3 +61,11 @@ __all__ = [
     "ApprovalProviderRequiredError",
     "ApprovalProviderError",
 ]
+
+
+def __getattr__(name: str):
+    if name == "AgentShieldMCPServer":
+        from .server import AgentShieldMCPServer
+
+        return AgentShieldMCPServer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
