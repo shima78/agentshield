@@ -22,11 +22,13 @@ mcp = [
 jev = [
     "typesafe-sdk>=0.7,<1.0",
 ]
-# Scoped to agentshield.providers.openai (and examples/real_agent_demo.py,
-# which uses it) -- not a dependency of agentshield's own __init__.py or
-# of agentshield.agent, which never imports an LLM client.
+# Scoped to agentshield.providers.openai/.anthropic (and
+# examples/real_agent_demo.py, which uses them) -- not a dependency of
+# agentshield's own __init__.py or of agentshield.agent, which never
+# imports an LLM client.
 agent-demo = [
     "openai>=3.0,<4.0",
+    "anthropic>=1.0,<2.0",
 ]
 dev = [
     "pytest>=7.0",
