@@ -294,15 +294,18 @@ AgentShield
 `DecisionRequest` with `build_decision_request()`, no parallel abstraction)
 and the `AgentProvider` interface (`propose_action(user_request) ->
 ProposedAction`). It has no dependency on any specific provider SDK.
-`agentshield.providers.openai.OpenAIProvider` is one implementation of it —
-it alone creates the OpenAI client, reads `OPENAI_API_KEY`, and converts
-the response; the agent loop never imports `openai`, never sees an API
-key, and never sees a provider response object. **The provider does not
-know about AgentShield. AgentShield does not know about OpenAI. The agent
-connects the two.**
+Two implementations ship: `agentshield.providers.anthropic.AnthropicProvider`
+(Claude Messages API, native structured output) and
+`agentshield.providers.openai.OpenAIProvider` (chat completions, JSON
+mode). Each alone creates its own client, reads its own API key
+(`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`), and converts the response; the
+agent loop never imports `anthropic`/`openai`, never sees an API key, and
+never sees a provider response object. **The provider does not know about
+AgentShield. AgentShield does not know about Anthropic or OpenAI. The
+agent connects the two.**
 
-If a configured `OpenAIProvider` call fails, it raises `ProviderError` —
-the agent does not silently fall back to a different provider; it fails
+If a configured provider's call fails, it raises `ProviderError` — the
+agent does not silently fall back to a different provider; it fails
 safely and does not execute.
 
 [`examples/real_agent_demo.py`](examples/real_agent_demo.py) is a complete,
@@ -310,18 +313,20 @@ runnable version of this. The three scenarios are the same ones used by
 `agent_demo.py` above (production DENY, staging ALLOW-but-Jev-says-REVIEW,
 staging ALLOW-and-Jev-agrees), driven this time by an LLM-proposed action
 instead of a hand-written one. Its own `DeterministicDemoProvider` —
-implementing the exact same `AgentProvider` interface `OpenAIProvider`
-does — stands in for the LLM step when no `OPENAI_API_KEY` is set,
-clearly labeled and never pretending to be a real LLM call.
+implementing the exact same `AgentProvider` interface a real provider
+does — stands in for the LLM step when no key is set, clearly labeled and
+never pretending to be a real LLM call. When both keys are set, Anthropic
+is tried first.
 
 ```bash
 pip install -e ".[agent-demo,jev]"
-export OPENAI_API_KEY=...      # for the LLM step; never committed, never printed
+export ANTHROPIC_API_KEY=...   # tried first; never committed, never printed
+export OPENAI_API_KEY=...      # tried if no Anthropic key; never committed, never printed
 export TYPESAFE_API_KEY=...    # for semantic evaluation; never committed, never printed
 python examples/real_agent_demo.py
 ```
 
-Both are optional and independent: without `OPENAI_API_KEY`, the
+All are optional and independent: without a provider key, the
 deterministic provider is used instead; without `TYPESAFE_API_KEY`,
 semantic evaluation is skipped (also clearly labeled) and the
 deterministic-only decision is used.
@@ -686,7 +691,7 @@ TYPESAFE_API_KEY=... python examples/agent_demo.py
 # deterministic stand-in without one) instead of hand-written in code.
 pip install -e ".[agent-demo,jev]"
 python examples/real_agent_demo.py
-OPENAI_API_KEY=... TYPESAFE_API_KEY=... python examples/real_agent_demo.py
+ANTHROPIC_API_KEY=... TYPESAFE_API_KEY=... python examples/real_agent_demo.py
 ```
 
 The two demos below need the optional MCP extra:
