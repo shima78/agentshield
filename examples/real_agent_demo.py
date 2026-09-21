@@ -30,32 +30,34 @@ the proposed action. No side effects are ever performed for real;
 `execute_action()` only simulates.
 
 **The provider does not know about AgentShield. AgentShield does not know
-about OpenAI. The agent connects the two.** Everything OpenAI-specific
-lives in `agentshield.providers.openai.OpenAIProvider`; this script (the
-agent) only ever talks to the provider-neutral `AgentProvider` interface
-and `ProposedAction` from `agentshield.agent` -- it never imports the
-`openai` package, never sees an API key, and never sees a provider
-response object.
+about OpenAI or Anthropic. The agent connects the two.** Everything
+provider-SDK-specific lives in `agentshield.providers.anthropic.AnthropicProvider`
+/ `agentshield.providers.openai.OpenAIProvider`; this script (the agent)
+only ever talks to the provider-neutral `AgentProvider` interface and
+`ProposedAction` from `agentshield.agent` -- it never imports the
+`anthropic`/`openai` packages, never sees an API key, and never sees a
+provider response object.
 
 Run:
 
     python examples/real_agent_demo.py
 
-Runs fully deterministically with no setup at all: without OPENAI_API_KEY,
-`DeterministicDemoProvider` below (a small stand-in implementing the same
-`AgentProvider` interface a real provider would) takes the LLM's place,
-clearly labeled, never pretending to be a real LLM call; without
-TYPESAFE_API_KEY, semantic evaluation is skipped (also clearly labeled).
-Both can be enabled for real:
+Runs fully deterministically with no setup at all: without
+ANTHROPIC_API_KEY or OPENAI_API_KEY, `DeterministicDemoProvider` below (a
+small stand-in implementing the same `AgentProvider` interface a real
+provider would) takes the LLM's place, clearly labeled, never pretending
+to be a real LLM call; without TYPESAFE_API_KEY, semantic evaluation is
+skipped (also clearly labeled). Any can be enabled for real:
 
     pip install -e ".[agent-demo,jev]"
-    export OPENAI_API_KEY=...      # never committed, never printed
+    export ANTHROPIC_API_KEY=...   # tried first; never committed, never printed
+    export OPENAI_API_KEY=...      # tried if no Anthropic key; never committed, never printed
     export TYPESAFE_API_KEY=...    # never committed, never printed
     python examples/real_agent_demo.py
 
-If a real OpenAI provider is configured but its call fails, this demo
-does NOT silently fall back to the deterministic stand-in -- it fails
-safely and does not execute (see `run_agent` below).
+If a real provider is configured but its call fails, this demo does NOT
+silently fall back to a different provider -- it fails safely and does
+not execute (see `run_agent` below).
 """
 
 from __future__ import annotations
@@ -183,19 +185,30 @@ class DeterministicDemoProvider(AgentProvider):
 def _build_provider() -> tuple[AgentProvider, bool]:
     """Returns (provider, used_real_llm).
 
-    Provider selection (which provider to construct) is the only OpenAI-
-    adjacent knowledge this demo script has: a presence check on
-    OPENAI_API_KEY, nothing about the SDK itself. Once a provider is
-    selected, it is never swapped -- see `run_agent` for what happens if
-    a configured real provider then fails.
+    Provider selection (which provider to construct) is the only
+    provider-adjacent knowledge this demo script has: a presence check on
+    each provider's API key env var, nothing about either SDK itself.
+    Anthropic is tried first, then OpenAI, then the deterministic
+    fallback. Once a provider is selected, it is never swapped -- see
+    `run_agent` for what happens if a configured real provider then fails.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
-        return DeterministicDemoProvider(), False
-    try:
-        from agentshield.providers.openai import OpenAIProvider
-    except ImportError:
-        return DeterministicDemoProvider(), False
-    return OpenAIProvider(), True
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            from agentshield.providers.anthropic import AnthropicProvider
+
+            return AnthropicProvider(), True
+        except ImportError:
+            pass
+
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            from agentshield.providers.openai import OpenAIProvider
+
+            return OpenAIProvider(), True
+        except ImportError:
+            pass
+
+    return DeterministicDemoProvider(), False
 
 
 def execute_action(action: str, arguments: dict[str, Any]) -> None:
@@ -275,9 +288,12 @@ def main() -> None:
     provider, used_real_llm = _build_provider()
     if not used_real_llm:
         print(
-            "(OPENAI_API_KEY is not set: using a deterministic stand-in for "
-            "the agent's action-proposal step instead of a real LLM call.)\n"
+            "(Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set: using a "
+            "deterministic stand-in for the agent's action-proposal step "
+            "instead of a real LLM call.)\n"
         )
+    else:
+        print(f"(Using {type(provider).__name__} for the agent's action-proposal step.)\n")
 
     run_agent(
         1,
