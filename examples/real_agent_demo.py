@@ -30,28 +30,30 @@ the proposed action. No side effects are ever performed for real;
 `execute_action()` only simulates.
 
 **The provider does not know about AgentShield. AgentShield does not know
-about OpenAI or Anthropic. The agent connects the two.** Everything
+about OpenAI, Anthropic, or Gemini. The agent connects the two.** Everything
 provider-SDK-specific lives in `agentshield.providers.anthropic.AnthropicProvider`
-/ `agentshield.providers.openai.OpenAIProvider`; this script (the agent)
-only ever talks to the provider-neutral `AgentProvider` interface and
-`ProposedAction` from `agentshield.agent` -- it never imports the
-`anthropic`/`openai` packages, never sees an API key, and never sees a
-provider response object.
+/ `agentshield.providers.openai.OpenAIProvider` / `agentshield.providers.gemini.GeminiProvider`;
+this script (the agent) only ever talks to the provider-neutral
+`AgentProvider` interface and `ProposedAction` from `agentshield.agent` --
+it never imports the `anthropic`/`openai`/`google.genai` packages, never
+sees an API key, and never sees a provider response object.
 
 Run:
 
     python examples/real_agent_demo.py
 
 Runs fully deterministically with no setup at all: without
-ANTHROPIC_API_KEY or OPENAI_API_KEY, `DeterministicDemoProvider` below (a
-small stand-in implementing the same `AgentProvider` interface a real
-provider would) takes the LLM's place, clearly labeled, never pretending
-to be a real LLM call; without TYPESAFE_API_KEY, semantic evaluation is
-skipped (also clearly labeled). Any can be enabled for real:
+ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY,
+`DeterministicDemoProvider` below (a small stand-in implementing the same
+`AgentProvider` interface a real provider would) takes the LLM's place,
+clearly labeled, never pretending to be a real LLM call; without
+TYPESAFE_API_KEY, semantic evaluation is skipped (also clearly labeled).
+Any can be enabled for real:
 
     pip install -e ".[agent-demo,jev]"
     export ANTHROPIC_API_KEY=...   # tried first; never committed, never printed
-    export OPENAI_API_KEY=...      # tried if no Anthropic key; never committed, never printed
+    export OPENAI_API_KEY=...      # tried next; never committed, never printed
+    export GEMINI_API_KEY=...      # tried last; never committed, never printed
     export TYPESAFE_API_KEY=...    # never committed, never printed
     python examples/real_agent_demo.py
 
@@ -187,10 +189,11 @@ def _build_provider() -> tuple[AgentProvider, bool]:
 
     Provider selection (which provider to construct) is the only
     provider-adjacent knowledge this demo script has: a presence check on
-    each provider's API key env var, nothing about either SDK itself.
-    Anthropic is tried first, then OpenAI, then the deterministic
-    fallback. Once a provider is selected, it is never swapped -- see
-    `run_agent` for what happens if a configured real provider then fails.
+    each provider's API key env var, nothing about any SDK itself.
+    Anthropic is tried first, then OpenAI, then Gemini, then the
+    deterministic fallback. Once a provider is selected, it is never
+    swapped -- see `run_agent` for what happens if a configured real
+    provider then fails.
     """
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
@@ -205,6 +208,14 @@ def _build_provider() -> tuple[AgentProvider, bool]:
             from agentshield.providers.openai import OpenAIProvider
 
             return OpenAIProvider(), True
+        except ImportError:
+            pass
+
+    if os.environ.get("GEMINI_API_KEY"):
+        try:
+            from agentshield.providers.gemini import GeminiProvider
+
+            return GeminiProvider(), True
         except ImportError:
             pass
 
@@ -288,9 +299,9 @@ def main() -> None:
     provider, used_real_llm = _build_provider()
     if not used_real_llm:
         print(
-            "(Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set: using a "
-            "deterministic stand-in for the agent's action-proposal step "
-            "instead of a real LLM call.)\n"
+            "(None of ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY "
+            "is set: using a deterministic stand-in for the agent's "
+            "action-proposal step instead of a real LLM call.)\n"
         )
     else:
         print(f"(Using {type(provider).__name__} for the agent's action-proposal step.)\n")
