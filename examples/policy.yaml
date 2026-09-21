@@ -1,0 +1,30 @@
+rules:
+  - name: block-secret-access
+    tool: "*.read_secret"
+    outcome: deny
+    risk: critical
+    reason: "Access to secrets is blocked."
+
+  - name: block-destructive-actions
+    tool: "*.delete_*"
+    outcome: deny
+    risk: critical
+    reason: "Destructive delete actions are blocked by default."
+
+  - name: production-merge
+    server: github
+    tool: merge_pull_request
+    context:
+      environment: production
+    outcome: review
+    risk: high
+    reason: "Production merges require human approval."
+
+  - name: staging-merge
+    server: github
+    tool: merge_pull_request
+    context:
+      environment: staging
+    outcome: allow
+    risk: low
+    reason: "Staging merges are allowed without review."
