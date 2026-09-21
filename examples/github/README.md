@@ -13,10 +13,10 @@ Claude / Cursor / MCP Client
           v
    +--------------+
    | AgentShield  |
-   | MCP Gateway  |
+   | MCP adapter  |
    +------+-------+
           |
-   AuthorizationEngine
+    DecisionEngine
           |
    ALLOW / REVIEW / DENY
           |

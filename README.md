@@ -1,25 +1,62 @@
 # AgentShield
 
-**Policy enforcement for AI agents and their tools.**
+**A policy-driven decision engine for AI agents and AI-native applications.**
 
 AgentShield decides whether an action an agent wants to take should be
 **allowed**, sent for **review**, or **denied** — deterministically, based on
-rules you define, before the action is executed.
+rules you define. **AgentShield decides; the agent/application executes.**
+It does not need to sit between an agent and a tool, an MCP server, or
+anything else — it only needs to be consulted before the action happens:
+
+```text
+AI Agent
+   |
+   | evaluate action
+   v
+AgentShield
+   |
+   | ALLOW / REVIEW / DENY
+   v
+AI Agent
+   |
+   | execute if permitted
+   v
+Tool / MCP / API / Action
+```
+
+```python
+decision = shield.evaluate(request)
+```
+
+> **Scope note:** in this phase, AgentShield is a *decision engine*, not an
+> enforcement mechanism. It cannot, by itself, technically stop a malicious
+> or misbehaving agent from ignoring its answer and executing the action
+> anyway — that requires actually sitting in the execution path (as the MCP
+> Gateway/server below optionally does) or another enforcement integration.
+> Making that guarantee robust across execution paths is future work.
 
 ## Why it exists
 
-AI agents increasingly call tools that have real-world side effects: merging
-pull requests, deleting resources, reading secrets, moving money. Provider
-SDKs and MCP servers give you the *mechanism* to call these tools, but not a
-consistent, auditable way to decide *whether a given call should be allowed*.
-AgentShield is that decision layer — independent of any specific LLM
-provider, agent framework, or tool protocol.
+AI agents increasingly want to take actions with real-world side effects:
+merging pull requests, deleting resources, reading secrets, moving money.
+Provider SDKs and tool protocols like MCP give you the *mechanism* to take
+these actions, but not a consistent, auditable way to decide *whether a
+given action should be allowed*. AgentShield is that decision layer —
+independent of any specific LLM provider, agent framework, or tool
+protocol.
 
-**AgentShield does not replace MCP servers. It sits in front of them.**
+## Two ways to use it
 
-```text
-Agent -> AgentShield -> Policy -> ALLOW / REVIEW / DENY -> Tool
-```
+* **Python SDK / Library (primary)** — embed the Core decision engine
+  directly in your own agent/application code and consult it before
+  executing an action. See [`examples/sdk_example.py`](examples/sdk_example.py)
+  and "Minimal example" below. No MCP dependency required.
+* **MCP adapter (optional integration)** — `agentshield.mcp` is one
+  integration built on top of the same Core: it places AgentShield in the
+  execution path between an MCP client and a downstream MCP server, so it
+  can also *enforce* (not just advise on) ALLOW/REVIEW/DENY for that path.
+  See "MCP adapter" below. This is not what AgentShield *is* — it's one way
+  to use it.
 
 ## Architecture
 
@@ -27,7 +64,7 @@ Agent -> AgentShield -> Policy -> ALLOW / REVIEW / DENY -> Tool
                     AgentShield
                          │
                   ┌──────┴──────┐
-                  │     Core     │   ← Phase 1
+                  │     Core     │   ← the decision engine
                   │              │
                   │ Policy       │
                   │ Decision     │
@@ -38,49 +75,34 @@ Agent -> AgentShield -> Policy -> ALLOW / REVIEW / DENY -> Tool
                          │
               ┌──────────┴──────────┐
               ▼                     ▼
-         Python SDK            MCP Gateway      ← Phase 2 / 2.5 (this repo)
+         Python SDK            MCP adapter      ← agentshield.mcp (optional)
               │                     │
          Developers          AI Agents / MCP
 ```
 
-AgentShield can be used two ways, both built on the same Core and the same
-`MCPGateway` — neither duplicates authorization logic:
-
-* **Python SDK / Library** — embed `MCPGateway` (or the Core directly)
-  inside your own Python process. See [`examples/run_demo.py`](examples/run_demo.py).
-* **MCP Gateway (real MCP server)** — run AgentShield itself as an MCP
-  server that a real MCP client (Claude Desktop, Cursor, or any other
-  MCP-compatible client) connects to, exactly like any other MCP server.
-  See [`examples/run_demo_server.py`](examples/run_demo_server.py) and
-  "Running AgentShield as a real MCP server" below.
-
 The **Core** (`agentshield.decision`, `.policy`, `.engine`, `.risk`,
 `.audit`) is a small, dependency-light Python library. It is deterministic:
 it never calls an external service, never calls an LLM, and never executes
-the action it is authorizing. Given a policy and a request, it always
-returns the same decision. The Core has **no dependency on MCP** and remains
+the action it decides on — it only returns a `Decision`. Given a policy and
+a request, it always returns the same decision. The Core has **no
+dependency on MCP** (see `tests/test_core_independence.py`) and remains
 fully usable on its own.
 
-The **MCP Gateway** (`agentshield.mcp`, Phase 2) is a policy-enforcement
-proxy in front of a downstream MCP server:
-
 ```text
-Agent
+Core
+  ^
   |
-  v
- MCP
-  |
-  v
-AgentShield
-  |
-  +--> Policy Engine
-  +--> Risk
-  +--> Approval
-  +--> Audit
-  |
-  v
-MCP Server / Tool
+MCP adapter (agentshield.mcp)
 ```
+
+The dependency direction is one-way: the Core has no idea MCP, or anything
+else that might call it, exists.
+
+### MCP is one adapter among others
+
+`agentshield.mcp` (documented in full below) is an **optional** integration
+that happens to place AgentShield in the execution path for MCP traffic
+specifically, so it can enforce rather than just advise for that path:
 
 ```text
 AI Agent / MCP Client
@@ -89,11 +111,11 @@ AI Agent / MCP Client
         v
 +----------------------+
 |   AgentShield        |
-|    MCP Gateway       |
+|    MCP adapter       |
 +----------+-----------+
            |
            v
-   AuthorizationEngine
+    DecisionEngine
            |
     +------+------+
     |             |
@@ -104,35 +126,57 @@ Downstream MCP
    Server
 ```
 
-**MCP is the transport/tool interface. AgentShield is the authorization
-boundary.** The gateway depends on the Core; the Core has no idea MCP
-exists. AgentShield works with existing MCP servers without requiring those
-servers to be modified, and preserves their tool definitions and arguments
-as-is — it is a policy layer, not a schema transformation layer.
+AgentShield works with existing MCP servers without requiring those servers
+to be modified, and preserves their tool definitions and arguments as-is —
+it is a policy layer, not a schema transformation layer. But this is one
+possible caller of the Core, not a requirement: the same `DecisionEngine`
+works identically for an HTTP API call, a shell command, a workflow step,
+or anything else expressed as a `DecisionRequest`.
 
-## Minimal example (Core only)
+## Minimal example (Core only, no MCP)
 
 ```python
-from agentshield import AuthorizationEngine, AuthorizationRequest, Policy
+from agentshield import DecisionEngine, DecisionRequest, Outcome, Policy
 
 policy = Policy.from_yaml("examples/policy.yaml")
-engine = AuthorizationEngine(policy)
+shield = DecisionEngine(policy)
 
-request = AuthorizationRequest(
-    actor="agent",
-    server="github",
-    tool="merge_pull_request",
-    arguments={"repo": "acme/app", "pull_request": 42},
-    context={"environment": "production"},
+decision = shield.evaluate(
+    DecisionRequest(
+        action="merge_pull_request",
+        actor="agent",
+        server="github",
+        arguments={"repo": "acme/app", "pull_request": 42},
+        context={"environment": "production"},
+    )
 )
 
-decision = engine.evaluate(request)
+if decision.outcome == Outcome.DENY:
+    ...  # the agent must not execute the action
+elif decision.outcome == Outcome.REVIEW:
+    ...  # the agent must route this through its own approval flow first
+else:
+    ...  # the agent may proceed to actually perform the action, however
+         # it chooses to (MCP, a direct API call, a CLI, ...)
 
 print(decision.outcome)   # Outcome.REVIEW
 print(decision.allowed)   # False
 print(decision.reason)    # "Production merges require human approval."
 print(decision.rule)      # "production-merge"
 ```
+
+See [`examples/sdk_example.py`](examples/sdk_example.py) for a runnable
+version of this.
+
+> **Breaking rename:** what was `AuthorizationEngine`/`AuthorizationRequest`
+> is now `DecisionEngine`/`DecisionRequest`, reflecting that this is a
+> general-purpose decision engine, not an MCP-specific authorization layer.
+> `DecisionRequest`'s tool/action field was renamed from `tool` to `action`.
+> The old class names remain importable as deprecated aliases
+> (`AuthorizationEngine is DecisionEngine`, etc.) so `from agentshield import
+> AuthorizationEngine` still works, but any code constructing the request
+> with `tool=...` must change to `action=...`. `PolicyRule.tool` (the policy
+> YAML field) is **unchanged** — existing policy files keep working as-is.
 
 ## Example policy
 
@@ -204,11 +248,12 @@ DENY is never sent to an `ApprovalProvider` and never reaches the downstream
 server). Any future integration that wants to add a "second opinion" must be
 additive (e.g. escalating `REVIEW` to `DENY`), never permissive.
 
-## MCP Gateway (Phase 2)
+## MCP adapter
 
-`agentshield.mcp` puts a policy-enforcement proxy between an MCP client (an
-agent) and a downstream MCP server launched locally over stdio, using the
-official [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
+An **optional integration**, not the definition of AgentShield: `agentshield.mcp`
+puts a policy-enforcement proxy between an MCP client (an agent) and a
+downstream MCP server launched locally over stdio, using the official
+[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
 
 ```python
 import asyncio
@@ -250,20 +295,21 @@ actor: agent
 
 `downstream` describes how to launch the downstream MCP server as a local
 subprocess. `context` is static context merged into every
-`AuthorizationRequest` built by this gateway (so a rule like `context:
+`DecisionRequest` built by this gateway (so a rule like `context:
 {environment: production}` works through the gateway exactly as it does in
 the Core). `actor` defaults to `"agent"`.
 
 ### Request mapping
 
-Every intercepted `tools/call` is mapped onto the Core's
-`AuthorizationRequest` like this:
+Every intercepted `tools/call` is mapped onto the Core's generic
+`DecisionRequest` like this — this is the adapter's one job, translating
+MCP's vocabulary into the Core's generic vocabulary:
 
-| MCP call | `AuthorizationRequest` field |
+| MCP call | `DecisionRequest` field |
 |---|---|
 | configured `actor` (default `"agent"`) | `actor` |
 | configured `server.name` | `server` |
-| MCP tool name | `tool` |
+| MCP tool name | `action` |
 | MCP tool arguments, unmodified | `arguments` |
 | configured static `context` | `context` |
 
@@ -315,13 +361,14 @@ subclasses) for gateway/transport failures, distinct from Core errors like
 never forwards), `ApprovalProviderRequiredError`, `ApprovalProviderError`,
 `GatewayConfigError`. Downstream errors are never swallowed.
 
-## Running AgentShield as a real MCP server (Phase 2.5)
+## Running AgentShield as a real MCP server
 
 `agentshield.mcp.server` is a thin adapter that exposes an `MCPGateway` as a
 real, upstream-facing MCP server over stdio, using the official MCP SDK's
-`Server`/`stdio_server`. It contains **no authorization logic of its own** —
-every `tools/call` is routed straight through the same `MCPGateway.call_tool()`
-used by the library form above:
+`Server`/`stdio_server`. This is the case where the MCP adapter actually
+sits in the execution path and can enforce, not just advise. It contains
+**no decision logic of its own** — every `tools/call` is routed straight
+through the same `MCPGateway.call_tool()` used by the library form above:
 
 ```text
 MCP Client / AI Agent
@@ -334,10 +381,10 @@ MCP Client / AI Agent
 +----------+-----------+
            |
            v
-      MCPGateway          agentshield.mcp.gateway
+      MCPGateway          agentshield.mcp.gateway — MCP adapter
            |
            v
-  AuthorizationEngine      agentshield Core — MCP-agnostic
+  DecisionEngine           agentshield Core — MCP-agnostic
            |
     +------+------+------+
     |             |      |
@@ -406,36 +453,42 @@ create_file(...)   -> REVIEW -> blocked (no approval provider configured)
 delete_file(...)   -> DENY   -> blocked; downstream never called
 ```
 
-## Local demo
+## Local demos
 
+```bash
+# Core only, no MCP: the primary usage pattern.
+python examples/sdk_example.py
+```
+
+The two demos below need the optional MCP extra:
 [`examples/mcp_server.py`](examples/mcp_server.py) is a tiny fake MCP server
 with three harmless tools (`echo`, `create_file`, `delete_file`), confined to
 a local sandbox directory. [`examples/mcp_policy.yaml`](examples/mcp_policy.yaml)
 allows `echo`, requires review for `create_file`, and denies `delete_file`.
-Both demos are entirely local — no network access, no API keys, no external
+All demos are entirely local — no network access, no API keys, no external
 services.
 
 ```bash
 pip install -e ".[mcp]"
 
-# Library form: embeds MCPGateway directly in this process.
+# MCP library form: embeds MCPGateway directly in this process.
 python examples/run_demo.py
 
-# Real server form: a real MCP client connects to
+# MCP real server form: a real MCP client connects to
 # `python -m agentshield.mcp.server` as a subprocess, exactly like Claude
 # Desktop or Cursor would.
 python examples/run_demo_server.py
 ```
 
-Both run `MCP Client -> AgentShield -> Fake MCP Server` end to end and
-demonstrate ALLOW, REVIEW, and DENY plus (for `run_demo.py`) the resulting
-audit trail.
+Both MCP demos run `MCP Client -> AgentShield -> Fake MCP Server` end to end
+and demonstrate ALLOW, REVIEW, and DENY plus (for `run_demo.py`) the
+resulting audit trail.
 
 ## Real MCP Integration
 
-Phases 1–2.5 above are proven against a small fake local MCP server.
+The MCP demos above are proven against a small fake local MCP server.
 [`examples/github/`](examples/github/) proves the exact same, unmodified
-gateway against a **real** MCP ecosystem server:
+MCP adapter against a **real** MCP ecosystem server:
 [github/github-mcp-server](https://github.com/github/github-mcp-server),
 GitHub's own official MCP server.
 
@@ -508,38 +561,42 @@ pytest -m integration
 
 ## What's implemented
 
-* **Phase 1 — Core**: typed decision/request/policy models, deterministic
-  matching and precedence, a default-allow fallback, and an in-memory audit
-  log.
-* **Phase 2 — MCP Gateway library**: `MCPGateway`, a policy-enforcement proxy
-  for a downstream MCP server reached over stdio, using the official MCP
-  SDK; tool discovery; ALLOW/REVIEW/DENY enforcement; a pluggable approval
+* **Core — decision engine**: `DecisionEngine`/`DecisionRequest`, typed
+  decision/policy models, deterministic matching and precedence, a
+  default-allow fallback, and an in-memory audit log. This is the primary,
+  MCP-agnostic public API (`shield.evaluate(request)`).
+* **MCP adapter (library)**: `MCPGateway`, a policy-enforcement proxy for a
+  downstream MCP server reached over stdio, using the official MCP SDK;
+  tool discovery; ALLOW/REVIEW/DENY enforcement; a pluggable approval
   abstraction; audit logging.
-* **Phase 2.5 — real MCP server**: `agentshield.mcp.server` exposes
+* **MCP adapter (real server)**: `agentshield.mcp.server` exposes
   `MCPGateway` as an actual upstream-facing MCP server over stdio (a thin
-  protocol adapter with no authorization logic of its own), launchable via
+  protocol adapter with no decision logic of its own), launchable via
   `python -m agentshield.mcp.server --config ...` and usable directly from
   Claude Desktop, Cursor, or any other MCP-compatible client.
-* **Phase 3A — real MCP integration**: the same gateway proven against a
-  real MCP ecosystem server (GitHub MCP) rather than only the bundled fake
-  one, with an opt-in, credential-gated integration test suite.
+* **Real MCP integration**: the same MCP adapter proven against a real MCP
+  ecosystem server (GitHub MCP) rather than only the bundled fake one, with
+  an opt-in, credential-gated integration test suite.
 
-Deliberately **not** implemented yet: a Python SDK package, a general CLI, an
-HTTP server, a database, a web dashboard, authentication, an LLM-based
-reasoning provider ("Jev"), or configurable approval backends (Slack,
-webhook, web UI).
+Deliberately **not** implemented yet: automatic agent interception, a
+general CLI, an HTTP authorization service or remote AgentShield service, a
+database, a web dashboard, authentication infrastructure, an LLM-based
+reasoning provider ("Jev"), semantic/LLM-based policy evaluation, or
+configurable approval backends (Slack, webhook, web UI, secret management).
+A full enforcement/proxy redesign beyond the existing MCP adapter is future
+work — see the scope note at the top of this README.
 
 ## Roadmap
 
 ```text
-Core (Phase 1)
-→ MCP Gateway library (Phase 2, this repo)
-→ Real MCP server (Phase 2.5, this repo)
-→ Real MCP integration — GitHub (Phase 3A, this repo)
-→ Python SDK
+Core decision engine (current)
+→ MCP adapter — library + real server (this repo)
+→ Real MCP integration — GitHub (this repo)
+→ Python SDK packaging
 → Jev provider
+→ stronger enforcement integrations
 → TypeScript SDK
-→ integrations
+→ further integrations
 ```
 
 ## Installing and running tests
