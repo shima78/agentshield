@@ -31,3 +31,6 @@ packages = ["src/agentshield"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: requires network access and real credentials (e.g. a live GitHub MCP server and GITHUB_PERSONAL_ACCESS_TOKEN); skips itself automatically when prerequisites are absent, so plain `pytest` stays offline",
+]
