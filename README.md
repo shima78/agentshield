@@ -229,11 +229,10 @@ the agent remains responsible for that.
 
 ## Using AgentShield with an AI Agent
 
-The pattern above works the same when the proposed action itself comes
-from an LLM rather than being written directly in code: **the Agent
-decides what it wants to do; AgentShield decides whether that proposed
-action should proceed; the Agent executes only after receiving the
-decision.**
+**The Agent decides what it wants to do. AgentShield evaluates that
+proposed action before execution.** AgentShield does not replace the
+Agent's planning or decision-making — it provides a decision boundary
+between an Agent's proposed action and its execution.
 
 ```text
 User
@@ -241,13 +240,11 @@ User
   v
 AI Agent
   |
-  v
-DecisionRequest
-  |
+  | proposes action
   v
 AgentShield
-  |-- Deterministic Policy
-  +-- optional Jev
+  |-- Policy
+  +-- Jev
   |
   v
 ALLOW / REVIEW / DENY
@@ -258,6 +255,13 @@ AI Agent
   v
 Tool / API / Action
 ```
+
+* The Agent chooses the action — from a natural-language request, using
+  an LLM (or the deterministic stand-in below), independently, with no
+  hard-coded mapping from request to action.
+* Policy enforces deterministic constraints.
+* Jev evaluates semantic suitability (only when policy alone would ALLOW).
+* The Agent executes only after ALLOW.
 
 **AgentShield is not an execution proxy.** It does not need to sit between
 the Agent and a tool — nothing here talks MCP, and MCP is not required for
@@ -310,13 +314,32 @@ agent does not silently fall back to a different provider; it fails
 safely and does not execute.
 
 [`examples/real_agent_demo.py`](examples/real_agent_demo.py) is a complete,
-runnable version of this. The three scenarios are the same ones used by
-`agent_demo.py` above (production DENY, staging ALLOW-but-Jev-says-REVIEW,
-staging ALLOW-and-Jev-agrees), driven this time by an LLM-proposed action
-instead of a hand-written one. Its own `DeterministicDemoProvider` —
+runnable version of this, built around a small `Agent` class that connects
+a provider's proposal to AgentShield's decision to execution:
+
+```python
+class Agent:
+    def handle(self, user_request):
+        proposal = self.provider.propose_action(user_request)   # Agent decides
+        request = build_decision_request(proposal)
+        decision = self.shield.evaluate(request)                 # AgentShield evaluates
+        if decision.outcome == Outcome.ALLOW:
+            self._execute(proposal)                               # only after ALLOW
+```
+
+It gives the Agent three plain natural-language requests (e.g. *"Delete
+the production database."*) — nothing in the demo states what action each
+one means; the Agent (via a real LLM provider, or `DeterministicDemoProvider`
+below when no key is set) independently derives the structured action,
+arguments, and context each time, and AgentShield's policy/Jev then
+determine what happens. Execution goes through a tiny local tool registry
+(`deploy`, `delete_database`, `search_repository`) that only prints what
+it would have done — no MCP, no real side effects. `DeterministicDemoProvider` —
 implementing the exact same `AgentProvider` interface a real provider
 does — stands in for the LLM step when no key is set, clearly labeled and
-never pretending to be a real LLM call. When multiple keys are set,
+never pretending to be a real LLM call; it derives the action from facts
+actually present in the request text, the same way a real provider would,
+just without general language understanding. When multiple keys are set,
 Anthropic is tried first, then OpenAI, then Gemini.
 
 ```bash
@@ -689,8 +712,9 @@ python examples/agent_demo.py
 pip install -e ".[jev]"
 TYPESAFE_API_KEY=... python examples/agent_demo.py
 
-# The same three scenarios, but the action is proposed by an LLM (or a
-# deterministic stand-in without one) instead of hand-written in code.
+# Real agent autonomy: the Agent itself derives the action from plain
+# natural-language requests (via a real LLM, or a deterministic stand-in
+# without one) -- nothing here hard-codes which action each request means.
 pip install -e ".[agent-demo,jev]"
 python examples/real_agent_demo.py
 ANTHROPIC_API_KEY=... TYPESAFE_API_KEY=... python examples/real_agent_demo.py
